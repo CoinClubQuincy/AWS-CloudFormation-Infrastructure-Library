@@ -1,0 +1,120 @@
+Parameters:
+  Database:
+    Type: String
+    Description: enter database
+
+  Description:
+    Type: String
+    Description: enter description
+
+  Query:
+    Type: String
+    Description: enter query
+
+  Query2:
+    Type: String
+    Description: enter query
+
+  Query3:
+    Type: String
+    Description: enter query
+
+  Query4:
+    Type: String
+    Description: enter query
+
+  Query5:
+    Type: String
+    Description: enter query
+
+  Query6:
+    Type: String
+    Description: enter query
+
+  Query7:
+    Type: String
+    Description: enter query
+
+  Query8:
+    Type: String
+    Description: enter query
+
+  Query9:
+    Type: String
+    Description: enter query
+
+  Query10:
+    Type: String
+    Description: enter query
+
+  Query11:
+    Type: String
+    Description: enter query
+
+  Query12:
+    Type: String
+    Description: enter query
+
+  Query13:
+    Type: String
+    Description: enter query
+
+  Query14:
+    Type: String
+    Description: enter query
+
+  Query15:
+    Type: String
+    Description: enter query
+
+  Query16:
+    Type: String
+    Description: enter query
+
+  Query17:
+    Type: String
+    Description: enter query
+
+  Query18:
+    Type: String
+    Description: enter query
+
+  Query19:
+    Type: String
+    Description: enter query
+
+  Query20:
+    Type: String
+    Description: enter query
+
+Resources:
+  Athena:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Database:
+        Ref: Database
+      Description:
+        Ref: Description
+      Name:
+        Ref: AWS::StackName
+      QueryString: !Sub |
+         ${Query}
+         ${Query2}
+         ${Query3}
+         ${Query4}
+         ${Query5}
+         ${Query6}
+         ${Query7}
+         ${Query8}
+         ${Query9}
+         ${Query10}
+         ${Query11}
+         ${Query12}
+         ${Query13}
+         ${Query14}
+         ${Query15}
+         ${Query16}
+         ${Query17}
+         ${Query18}
+         ${Query19}
+         ${Query20}

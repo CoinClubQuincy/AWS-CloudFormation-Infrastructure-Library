@@ -1,0 +1,37 @@
+Parameters:
+  ENVTag:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+
+  VersionTag:
+    Type: String
+    Default: V.1
+    Description: Label Version Tag
+
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+Resources:
+  ECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName:
+        Ref: AWS::StackName
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag

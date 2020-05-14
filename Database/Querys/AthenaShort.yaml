@@ -1,0 +1,70 @@
+Parameters:
+  Database:
+    Type: String
+    Description: enter database
+
+  Description:
+    Type: String
+    Description: enter description
+
+  Query:
+    Type: String
+    Description: enter query
+
+  Query2:
+    Type: String
+    Description: enter query
+
+  Query3:
+    Type: String
+    Description: enter query
+
+  Query4:
+    Type: String
+    Description: enter query
+
+  Query5:
+    Type: String
+    Description: enter query
+
+  Query6:
+    Type: String
+    Description: enter query
+
+  Query7:
+    Type: String
+    Description: enter query
+
+  Query8:
+    Type: String
+    Description: enter query
+
+  Query9:
+    Type: String
+    Description: enter query
+
+  Query10:
+    Type: String
+    Description: enter query
+
+Resources:
+  Athena:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Database:
+        Ref: Database
+      Description:
+        Ref: Description
+      Name:
+        Ref: AWS::StackName
+      QueryString: !Sub |
+         ${Query}
+         ${Query2}
+         ${Query3}
+         ${Query4}
+         ${Query5}
+         ${Query6}
+         ${Query7}
+         ${Query8}
+         ${Query9}
+         ${Query10}

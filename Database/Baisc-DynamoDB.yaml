@@ -1,0 +1,127 @@
+Parameters:
+  PrimaryKey:
+    Type: String
+    Description: Primary Key
+
+  PrimaryKeyAttribute:
+    Type: String
+    Default: String
+    AllowedValues:
+      - String
+      - Number
+      - Binary
+    Description: set Attribute
+
+  SortKey:
+    Type: String
+    Description: Sort Key
+
+  SortKeyAttribute:
+    Type: String
+    Default: String
+    AllowedValues:
+      - String
+      - Number
+      - Binary
+    Description: set Attribute
+
+  ENVTag:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+
+  VersionTag:
+    Type: String
+    Default: V.1
+    Description: Label Version Tag
+
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+  ReadCapacityUnits:
+    Type: String
+    Default: "1"
+    AllowedValues:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+    Description: Read Capacity Units
+
+  WriteCapacityUnits:
+    Type: String
+    Default: "1"
+    AllowedValues:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+    Description: Write Capacity Units
+
+Mappings:
+  DyanmoMap:
+    AttributeName:
+      String: "S"
+      Number: "N"
+      Binary: "B"
+
+Resources:
+  DynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        -
+          AttributeName:
+            Ref: PrimaryKey
+          AttributeType: !FindInMap [DyanmoMap, AttributeName,!Ref PrimaryKeyAttribute]
+        -
+          AttributeName:
+            Ref: SortKey
+          AttributeType: !FindInMap [DyanmoMap, AttributeName,!Ref SortKeyAttribute]
+
+      KeySchema:
+        -
+          AttributeName:
+            Ref: PrimaryKey
+          KeyType: "HASH"
+        -
+          AttributeName:
+            Ref: SortKey
+          KeyType: "RANGE"
+
+      ProvisionedThroughput:
+        ReadCapacityUnits:
+          Ref: ReadCapacityUnits
+        WriteCapacityUnits:
+          Ref: WriteCapacityUnits
+
+      TableName:
+        Ref: AWS::StackName
+      Tags:
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+#

@@ -1,0 +1,1171 @@
+Parameters:
+  vpcsize:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: Pyramid pack V1.0
+
+  ENVTag:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+
+  VersionTag:
+    Type: String
+    Default: V.1
+    Description: Label Version Tag
+
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+  KeyTags:
+    Type: String
+    Default: Name
+    Description: Label VPC Key Tags
+
+  PrivateSSMIP:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: private IP for RDS connection
+
+
+##--------------------------Mapping to Regions --------------------------
+Mappings:
+  RegionMap:
+##--------------------------(N. Virginia)--------------------------
+    us-east-1:
+      A: us-east-1a
+      B: us-east-1b
+      C: us-east-1c
+      D: us-east-1d
+      E: us-east-1e
+      F: us-east-1f
+      s3: com.amazonaws.us-east-1.s3
+      dynamodb: com.amazonaws.us-east-1.dynamodb
+      ec2: com.amazonaws.us-east-1.ec2
+      kinesisstreams: com.amazonaws.us-east-1.kinesis-streams
+      ssm: com.amazonaws.us-east-1.ssm
+      ELB: com.amazonaws.us-east-1.elasticloadbalancing
+##--------------------------(N. California)--------------------------
+    us-west-1:
+      A: us-west-1a
+      B: us-west-1b
+      C: us-west-1c
+      s3: com.amazonaws.us-west-1.s3
+      dynamodb: com.amazonaws.us-west-1.dynamodb
+      ec2: com.amazonaws.us-west-1.ec2
+      kinesisstreams: com.amazonaws.us-west-1.kinesis-streams
+      ssm: com.amazonaws.us-west-1.ssm
+      ELB: com.amazonaws.us-west-1.elasticloadbalancing
+##--------------------------(Oregon)--------------------------
+    us-west-2:
+      A: us-west-2a
+      B: us-west-2b
+      C: us-west-2c
+      D: us-west-2d
+      s3: com.amazonaws.us-west-2.s3
+      dynamodb: com.amazonaws.us-west-2.dynamodb
+      ec2: com.amazonaws.us-west-2.ec2
+      kinesisstreams: com.amazonaws.us-west-2.kinesis-streams
+      ssm: com.amazonaws.us-west-2.ssm
+      ELB: com.amazonaws.us-west-2.elasticloadbalancing
+##--------------------------(Ireland)--------------------------
+    eu-west-1:
+      A: eu-west-1a
+      B: eu-west-1b
+      C: eu-west-1c
+      s3: com.amazonaws.eu-west-1.s3
+      dynamodb: com.amazonaws.eu-west-1.dynamodb
+      ec2: com.amazonaws.eu-west-1.ec2
+      kinesisstreams: com.amazonaws.eu-west-1.kinesis-streams
+      ssm: com.amazonaws.eu-west-1.ssm
+      ELB: com.amazonaws.eu-west-1.elasticloadbalancing
+##--------------------------(Tokyo)--------------------------
+    ap-northeast-1:
+      A: eu-west-1a
+      B: eu-west-1b
+      C: eu-west-1c
+      s3: com.amazonaws.ap-northeast-1.s3
+      dynamodb: com.amazonaws.ap-northeast-1.dynamodb
+      ec2: com.amazonaws.ap-northeast-1.ec2
+      kinesisstreams: com.amazonaws.ap-northeast-1.kinesis-streams
+      ssm: com.amazonaws.ap-northeast-1.ssm
+      ELB: com.amazonaws.ap-northeast-1.elasticloadbalancing
+##--------------------------(Singapore)--------------------------
+    ap-southeast-1:
+      A: ap-southeast-1a
+      B: ap-southeast-1b
+      C: ap-southeast-1c
+      s3: com.amazonaws.ap-southeast-1.s3
+      dynamodb: com.amazonaws.ap-southeast-1.dynamodb
+      ec2: com.amazonaws.ap-southeast-1.ec2
+      kinesisstreams: com.amazonaws.ap-southeast-1.kinesis-streams
+      ssm: com.amazonaws.ap-southeast-1.ssm
+      ELB: com.amazonaws.ap-southeast-1.elasticloadbalancing
+##--------------------------(Sydney)--------------------------
+    ap-southeast-2:
+      A: ap-southeast-2a
+      B: ap-southeast-2b
+      C: ap-southeast-2c
+      s3: com.amazonaws.ap-southeast-2.s3
+      dynamodb: com.amazonaws.ap-southeast-2.dynamodb
+      ec2: com.amazonaws.ap-southeast-2.ec2
+      kinesisstreams: com.amazonaws.ap-southeast-2.kinesis-streams
+      ssm: com.amazonaws.ap-southeast-2.ssm
+      ELB: com.amazonaws.ap-southeast-2.elasticloadbalancing
+##--------------------------(São Paulo)--------------------------
+    sa-east-1:
+      A: sa-east-1a
+      B: sa-east-1b
+      C: sa-east-1c
+      s3: com.amazonaws.sa-east-1.s3
+      dynamodb: com.amazonaws.sa-east-1.dynamodb
+      ec2: com.amazonaws.sa-east-1.ec2
+      kinesisstreams: com.amazonaws.sa-east-1.kinesis-streams
+      ssm: com.amazonaws.sa-east-1.ssm
+      ELB: com.amazonaws.sa-east-1.elasticloadbalancing
+##--------------------------(Frankfurt)--------------------------
+    eu-central-1:
+      A: eu-central-1a
+      B: eu-central-1b
+      C: eu-central-1a
+      s3: com.amazonaws.eu-central-1.s3
+      dynamodb: com.amazonaws.eu-central-1.dynamodb
+      ec2: com.amazonaws.eu-central-1.ec2
+      kinesisstreams: com.amazonaws.eu-central-1.kinesis-streams
+      ssm: com.amazonaws.eu-central-1.ssm
+      ELB: com.amazonaws.eu-central-1.elasticloadbalancing
+##--------------------------(Hong Kong)--------------------------
+    ap-east-1:
+      A: ap-east-1a
+      B: ap-east-1b
+      C: ap-east-1c
+      s3: com.amazonaws.ap-east-1.s3
+      dynamodb: com.amazonaws.ap-east-1.dynamodb
+      ec2: com.amazonaws.ap-east-1.ec2
+      kinesisstreams: com.amazonaws.ap-east-1.kinesis-streams
+      ssm: com.amazonaws.ap-east-1.ssm
+      ELB: com.amazonaws.ap-east-1.elasticloadbalancing
+##--------------------------(Mumbai)--------------------------
+    ap-south-1:
+      A: ap-south-1a
+      B: ap-south-1b
+      C: ap-south-1c
+      s3: com.amazonaws.ap-south-1.s3
+      dynamodb: com.amazonaws.ap-south-1.dynamodb
+      ec2: com.amazonaws.ap-south-1.ec2
+      kinesisstreams: com.amazonaws.ap-south-1.kinesis-streams
+      ssm: com.amazonaws.ap-south-1.ssm
+      ELB: com.amazonaws.ap-south-1.elasticloadbalancing
+##--------------------------(Seoul)--------------------------
+    ap-northeast-2:
+      A: ap-northeast-2a
+      B: ap-northeast-2b
+      C: ap-northeast-2c
+      s3: com.amazonaws.ap-northeast-2.s3
+      dynamodb: com.amazonaws.ap-northeast-2.dynamodb
+      ec2: com.amazonaws.ap-northeast-2.ec2
+      kinesisstreams: com.amazonaws.ap-northeast-2.kinesis-streams
+      ssm: com.amazonaws.ap-northeast-2.ssm
+      ELB: com.amazonaws.ap-northeast-2.elasticloadbalancing
+##--------------------------(Canada)--------------------------
+    ca-central-1:
+      A: ca-central-1a
+      B: ca-central-1b
+      C: ca-central-1a
+      s3: com.amazonaws.ca-central-1.s3
+      dynamodb: com.amazonaws.ca-central-1.dynamodb
+      ec2: com.amazonaws.ca-central-1.ec2
+      kinesisstreams: com.amazonaws.ca-central-1.kinesis-streams
+      ssm: com.amazonaws.ca-central-1.ssm
+      ELB: com.amazonaws.ca-central-1.elasticloadbalancing
+##--------------------------(London)--------------------------
+    eu-west-2:
+      A: eu-west-2a
+      B: eu-west-2b
+      C: eu-west-2c
+      s3: com.amazonaws.eu-west-2.s3
+      dynamodb: com.amazonaws.eu-west-2.dynamodb
+      ec2: com.amazonaws.eu-west-2.ec2
+      kinesisstreams: com.amazonaws.eu-west-2.kinesis-streams
+      ssm: com.amazonaws.eu-west-2.ssm
+      ELB: com.amazonaws.eu-west-2.elasticloadbalancing
+##--------------------------(Paris)--------------------------
+    eu-west-3:
+      A: eu-west-3a
+      B: eu-west-3b
+      C: eu-west-3c
+      s3: com.amazonaws.eu-west-3.s3
+      dynamodb: com.amazonaws.eu-west-3.dynamodb
+      ec2: com.amazonaws.eu-west-3.ec2
+      kinesisstreams: com.amazonaws.eu-west-3.kinesis-streams
+      ssm: com.amazonaws.eu-west-3.ssm
+      ELB: com.amazonaws.eu-west-3.elasticloadbalancing
+##--------------------------(Stockholm)--------------------------
+    eu-north-1:
+      A: eu-north-1a
+      B: eu-north-1b
+      C: eu-north-1c
+      s3: com.amazonaws.eu-north-1.s3
+      dynamodb: com.amazonaws.eu-north-1.dynamodb
+      ec2: com.amazonaws.eu-north-1.ec2
+      kinesisstreams: com.amazonaws.eu-north-1.kinesis-streams
+      ssm: com.amazonaws.eu-north-1.ssm
+      ELB: com.amazonaws.eu-north-1.elasticloadbalancing
+##--------------------------(Middle East)--------------------------
+    me-south-1:
+      A: me-south-1a
+      B: me-south-1b
+      C: me-south-1c
+      s3: com.amazonaws.me-south-1.s3
+      dynamodb: com.amazonaws.me-south-1.dynamodb
+      ec2: com.amazonaws.me-south-1.ec2
+      kinesisstreams: com.amazonaws.me-south-1.kinesis-streams
+      ssm: com.amazonaws.me-south-1.ssm
+      ELB: com.amazonaws.me-south-1.elasticloadbalancing
+##--------------------------(Ohio)--------------------------
+    us-east-2:
+      A: us-east-2a
+      B: us-east-2b
+      C: us-east-2
+      s3: com.amazonaws.us-east-2.s3
+      dynamodb: com.amazonaws.us-east-2.dynamodb
+      ec2: com.amazonaws.us-east-2.ec2
+      kinesisstreams: com.amazonaws.us-east-2.kinesis-streams
+      ssm: com.amazonaws.us-east-2.ssm
+      ELB: com.amazonaws.us-east-2.elasticloadbalancing
+
+Resources:
+##--------------------------Basic VPC Network Layout --------------------------
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref vpcsize
+      EnableDnsSupport: 'false'
+      EnableDnsHostnames: 'false'
+      InstanceTenancy: default
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "VPC"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+##-------------------------- Subnets --------------------------
+  privateSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      CidrBlock: "10.0.1.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - 'Database.'
+                    - !Ref AWS::StackName
+                    - "Private-A"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  privateSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      CidrBlock: "10.0.2.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - 'Database.'
+                    - !Ref AWS::StackName
+                    - "Private-B"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  privateSub3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      CidrBlock: "10.0.3.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-C"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  privateSub4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      CidrBlock: "10.0.4.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-D"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  privateSub5:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      CidrBlock: "10.0.5.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-E"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  privateSub6:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      CidrBlock: "10.0.6.0/26"
+      MapPublicIpOnLaunch: false
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-F"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  publicSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      CidrBlock: "10.0.7.0/26"
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-A"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  publicSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      CidrBlock: "10.0.8.0/26"
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-B"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+  publicSub3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      CidrBlock: "10.0.9.0/26"
+      MapPublicIpOnLaunch: true
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-C"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+      VpcId: !Ref myVPC
+
+##-------------------------- Associations --------------------------
+
+  AssociationSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable
+      SubnetId:
+        Ref: publicSub1
+
+  AssociationSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable2
+      SubnetId:
+        Ref: publicSub2
+
+  AssociationSubnet3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: RouteTable3
+      SubnetId:
+        Ref: publicSub3
+
+  AssociationSubnetprivate:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable
+      SubnetId:
+        Ref: privateSub1
+
+  AssociationSubnetprivate2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable2
+      SubnetId:
+        Ref: privateSub2
+
+  AssociationSubnetprivate3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable3
+      SubnetId:
+        Ref: privateSub3
+
+  AssociationSubnetprivate4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable4
+      SubnetId:
+        Ref: privateSub4
+
+  AssociationSubnetprivate5:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable5
+      SubnetId:
+        Ref: privateSub5
+
+  AssociationSubnetprivate6:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable6
+      SubnetId:
+        Ref: privateSub6
+
+  AssociationNat:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: PrivateRouteTable
+      SubnetId:
+        Ref: privateSub1
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Ref AWS::StackName
+       - Key: DeploymentGroup
+         Value: DeploymentGroup
+
+##-------------------------- Gateways & Routes --------------------------
+
+  VPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PrivateDnsEnabled: false
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+      ServiceName: !FindInMap [RegionMap, !Ref "AWS::Region", s3]
+      VpcEndpointType: Gateway
+      VpcId:
+        Ref: myVPC
+
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+         Fn::GetAtt:
+         - EIP
+         - AllocationId
+      SubnetId:
+        Ref: publicSub1
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Ref AWS::StackName
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Ref AWS::StackName
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+         Ref: InternetGateway
+      VpcId:
+         Ref: myVPC
+
+##-------------------------- Route tables --------------------------
+
+  NATRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-NAT"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-IGW"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  RouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-IGW"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  RouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Public-IGW"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable4:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable5:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  PrivateRouteTable6:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "Private-VPC-Endpoint"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+##-------------------------- Routes --------------------------
+
+  myRoute:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - InternetGateway
+      - AttachGateway
+      - RouteTable
+    Properties:
+       RouteTableId:
+         Ref: RouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: InternetGateway
+
+  myRoute2:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - InternetGateway
+      - AttachGateway
+      - RouteTable2
+    Properties:
+       RouteTableId:
+         Ref: RouteTable2
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: InternetGateway
+
+  myRoute3:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - InternetGateway
+      - AttachGateway
+      - RouteTable3
+    Properties:
+       RouteTableId:
+         Ref: RouteTable3
+       DestinationCidrBlock: 0.0.0.0/0
+       GatewayId:
+         Ref: InternetGateway
+
+  NATRoute1:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - NatGateway
+    Properties:
+       RouteTableId:
+         Ref: NATRouteTable
+       DestinationCidrBlock: 0.0.0.0/0
+       NatGatewayId:
+         Ref: NatGateway
+
+##-------------------------- SSM Parameter Store --------------------------
+
+
+  PrivateIP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join [ /, [ /RDS,!Ref "AWS::StackName" , IP]]
+      Tier: Standard
+      Type: String
+      Value:
+        Ref: PrivateSSMIP
+
+  GitHubOAuthToken:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join [ /, [ /GitHubOAuthToken,!Ref "AWS::StackName"]]
+      Tier: Standard
+      Type: String
+      Value: None
+
+  GitHubOwner:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join [ /, [ /GitHubOwner,!Ref "AWS::StackName"]]
+      Tier: Standard
+      Type: String
+      Value: None
+
+  GitHubSecret:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Join [ /, [ /GitHubSecret,!Ref "AWS::StackName"]]
+      Tier: Standard
+      Type: String
+      Value: None
+
+##-------------------------- Security Groups & NACLs --------------------------
+  BasicInternet:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS to ALB
+      VpcId:
+         Ref: myVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "BasicInternetSG"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  BasicRDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Basic internet SG for RDS
+      GroupName: !Join [ -, [ !Ref "AWS::StackName" ,BasicRDS, SG]]
+      VpcId:
+        Ref: myVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 1521
+        ToPort: 1521
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      Tags:
+        - Key: !Ref  KeyTags
+          Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "BasicRDSSG"
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag
+
+
+  SSH:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Basic internet SG for private VPC
+      GroupName: SSH-SG
+      VpcId:
+        Ref: myVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Ref AWS::StackName
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+##-------------------------- S3 --------------------------
+  NestedPack:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join [ -, [ !Ref "AWS::StackName", pyramidpack,xx-nestedcloudformation-xx] ]
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Ref AWS::StackName
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+##-------------------------- Outputs --------------------------
+Outputs:
+  VPC:
+    Description: VPC
+    Value:
+      Ref: myVPC
+    Export:
+      Name: !Ref AWS::StackName
+
+  PS1:
+    Description: Private sub 1
+    Value:
+      Ref: privateSub1
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", First-Privatesubnet] ]
+
+  PS2:
+    Description: Private sub 2
+    Value:
+      Ref: privateSub2
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", Second-Privatesubnet] ]
+
+  PS3:
+    Description: Private sub 3
+    Value:
+      Ref: privateSub3
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", Third-Privatesubnet] ]
+
+  PS4:
+    Description: Private sub 4
+    Value:
+      Ref: privateSub4
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", 4th-Privatesubnet] ]
+
+  PS5:
+    Description: Private sub 5
+    Value:
+      Ref: privateSub5
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", 5th-Privatesubnet] ]
+
+  PS6:
+    Description: Private sub 6
+    Value:
+      Ref: privateSub6
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", 6th-Privatesubnet] ]
+
+  PubS1:
+    Description: Public subnet 1
+    Value:
+      Ref: publicSub1
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", PublicSubnet1] ]
+
+  PubS2:
+    Description: Public subnet 2
+    Value:
+      Ref: publicSub2
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", PublicSubnet2] ]
+
+  PubS3:
+    Description: Public subnet 3
+    Value:
+      Ref: publicSub3
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", PublicSubnet3] ]
+
+  EIP:
+    Description: Elastic IP address
+    Value:
+      Ref: EIP
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", EIP] ]
+
+  NatGateway:
+    Description: Nat Gateway
+    Value:
+      Ref: NatGateway
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", NatGateway] ]
+
+  InternetGateway:
+    Description: InternetGateway
+    Value:
+      Ref: InternetGateway
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", InternetGateway] ]
+  SG:
+    Description: security groups
+    Value:
+      Ref: SSH
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", BasicInternet] ]
+  Pack:
+    Description: nested bucket
+    Value:
+      Ref: NestedPack
+    Export:
+      Name: !Join [ -, [ !Ref "AWS::StackName", xx-nestedcloudformation-xx] ]

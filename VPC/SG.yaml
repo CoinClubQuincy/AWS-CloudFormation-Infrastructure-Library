@@ -1,0 +1,124 @@
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC Identifier
+    MinLength: 1
+
+
+  KeyTags:
+    Type: String
+    Default: Name
+    Description: keytags
+
+  PrivateSSMIP:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: private IP for RDS connection
+
+
+  ENVTag:
+    Type: String
+    Default: Prod
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+
+  VersionTag:
+    Type: String
+    Default: V1.0
+    Description: Label Version Tag
+
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+
+Resources:
+  PrivateIP:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Priave IPS that can have acsess to all private instances and DB's
+      Name: !Join [ /, [ /RDS,!Ref "AWS::StackName" , IP]]
+      Tier: Standard
+      Type: String
+      Value:
+        Ref: PrivateSSMIP
+
+
+  BasicInternet:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS to ALB
+      VpcId:
+         Ref: VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      Tags:
+       - Key: !Ref  KeyTags
+         Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "BasicInternetSG"
+       - Key: ENV
+         Value:
+           Ref: ENVTag
+       - Key: Version
+         Value:
+           Ref: VersionTag
+       - Key: Project
+         Value:
+           Ref: ProjectTag
+
+  BasicRDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Basic internet SG for RDS
+      GroupName: !Join [ -, [ !Ref "AWS::StackName" ,BasicRDS, SG]]
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 1521
+        ToPort: 1521
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 1433
+        ToPort: 1433
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      - IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        CidrIp:
+          Fn::GetAtt: [ PrivateIP, Value ]
+      Tags:
+        - Key: !Ref  KeyTags
+          Value: !Join
+                  - '-'
+                  - - ''
+                    - !Ref AWS::StackName
+                    - "BasicRDSSG"
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag

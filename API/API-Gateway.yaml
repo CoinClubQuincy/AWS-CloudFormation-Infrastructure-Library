@@ -1,0 +1,33 @@
+Parameters:
+  ENVTag:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+  VersionTag:
+    Type: String
+    Default: V.1
+    Description: Label Version Tag
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+Resources:
+  API:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name:
+        Ref: AWS::StackName
+      Tags:
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag

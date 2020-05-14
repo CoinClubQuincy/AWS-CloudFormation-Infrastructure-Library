@@ -1,0 +1,401 @@
+Parameters:
+  InstanceTypeParameter:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+    Description: Default is t2.micro
+
+  ENVTag:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: Label Enviroment Tag
+
+  VersionTag:
+    Type: String
+    Default: V.1
+    Description: Label Version Tag
+
+  ProjectTag:
+    Type: String
+    Description: Label ProjectTag
+
+  DeploymentGroup:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+      - Test
+    Description: set Deployment Group
+
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC Identifier
+    MinLength: 1
+
+  Subnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Main AZ needed to host the Application [ Choose 2 different subnets ]
+    MinLength: 1
+
+  Subnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: The Main AZ needed to host the Application [ Choose 2 different subnets ]
+    MinLength: 1
+
+  ASGset:
+    Type: String
+    Default: "1"
+    AllowedValues:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+    Description: set Desired ASG size
+
+  ASGMin:
+    Type: String
+    Default: "1"
+    AllowedValues:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+    Description: set min ASG size
+
+  ASGMax:
+    Type: String
+    Default: "3"
+    AllowedValues:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+    Description: set max ASG size
+
+  PlacementGroupsetup:
+    Type: String
+    Default: "spread"
+    AllowedValues:
+      - "spread"
+      - "partition"
+      - "cluster"
+    Description: "Choose placement group"
+
+  OperatingSystem:
+    Type: String
+    Default: Amazonlinux2
+    AllowedValues:
+      - Ubuntu
+      - Amazonlinux2
+      - RedHat
+    Description: Choose OS
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "select key KeyPair"
+
+Mappings:
+  OS:
+    #                       (N. Virginia)
+    us-east-1:
+      Ubuntu: ami-0c37ee902a7924ed2
+      Amazonlinux2: ami-062f7200baf2fa504
+      RedHat: ""
+      CodeDeploy: aws-codedeploy-us-east-1
+    #                       (Ohio)
+    us-east-2:
+      Ubuntu: ami-046cfe1f8332fd5f2
+      Amazonlinux2: ""
+      RedHat: ""
+    #                       (N. California)
+    us-west-1:
+      Ubuntu: "ami-a0b89fc0"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-us-west-1"
+    #                       (Oregon)
+    us-west-2:
+      Ubuntu: "ami-830c94e3"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-us-west-2"
+    #                       (Ireland)
+    eu-west-1:
+      Ubuntu: "ami-ee0b0688"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-eu-west-1"
+    #                       (Tokyo)
+    ap-northeast-1:
+      Ubuntu: "ami-66182e01"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-northeast-1"
+    #                       (Singapore)
+    ap-southeast-1:
+      Ubuntu: "ami-f556ec96"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-southeast-1"
+    #                       (Sydney)
+    ap-southeast-2:
+      Ubuntu: "ami-4e101b2d"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-southeast-2"
+    #                       (São Paulo)
+    sa-east-1:
+      Ubuntu: "ami-09533f65"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-sa-east-1"
+    #                       (Frankfurt)
+    eu-central-1:
+      Ubuntu: "ami-3c15ca53"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-eu-central-1"
+    #                       (Hong Kong)
+    ap-east-1:
+      Ubuntu: "ami-dbc3b9aa"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-east-1"
+    #                       (Mumbai)
+    ap-south-1:
+      Ubuntu: "ami-0bb8408b37500e3be"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-south-1"
+    #                       (Seoul)
+    ap-northeast-2:
+      Ubuntu: "ami-0933d0fdfb094bfd1"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ap-northeast-2"
+    #                       (Canada)
+    ca-central-1:
+      Ubuntu: "ami-06542ef8c1ce7161a"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-ca-central-1"
+    #                       (London)
+    eu-west-2:
+      Ubuntu: "ami-0a6aae90571909e92"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-eu-west-2"
+    #                       (Paris)
+    eu-west-3:
+      Ubuntu: "ami-0a930ecbcb574cb4e"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-eu-west-3"
+    #                       (Stockholm)
+    eu-north-1:
+      Ubuntu: "ami-57b13f29"
+      Amazonlinux2: ""
+      RedHat: ""
+    #                       (Middle East)
+    me-south-1:
+      Ubuntu: "ami-0536d05d09d51d545"
+      Amazonlinux2: ""
+      RedHat: ""
+    #                       (Ohio)
+    us-east-2:
+      Ubuntu: "ami-046cfe1f8332fd5f2"
+      Amazonlinux2: ""
+      RedHat: ""
+      CodeDeploy: "aws-codedeploy-us-east-2"
+
+  SetPlacementGroup:
+    cluster:
+      cluster: "cluster"
+    partition:
+      partition: "partition"
+    spread:
+      spread: "spread"
+
+Resources:
+  WebInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            files:
+              '/etc/profile.d/load_env.sh':
+                content: !Sub |
+                  export Name=${AWS::StackName}
+
+    Properties:
+        InstanceType:
+          Ref: InstanceTypeParameter
+        ImageId: !FindInMap [ OS, !Ref "AWS::Region", !Ref OperatingSystem]
+        SecurityGroupIds:
+          - Ref: InstanceSecurityGroup
+        SubnetId:
+          Ref: Subnet1
+        KeyName:
+          Ref: KeyName
+        UserData:
+          Fn::Base64: !Sub |
+              #!/bin/bash -xe
+
+        Tags:
+          - Key: Name
+            Value: !Ref AWS::StackName
+          - Key: DeploymentGroup
+            Value:
+              Ref: DeploymentGroup
+          - Key: ENV
+            Value:
+              Ref: ENVTag
+          - Key: Version
+            Value:
+              Ref: VersionTag
+          - Key: Project
+            Value:
+              Ref: ProjectTag
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+        GroupDescription: Allow HTTP/HTTPS to ALB
+        VpcId:
+           Ref: VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        Tags:
+          - Key: Name
+            Value: !Ref AWS::StackName
+          - Key: DeploymentGroup
+            Value:
+              Ref: DeploymentGroup
+          - Key: ENV
+            Value:
+              Ref: ENVTag
+          - Key: Version
+            Value:
+              Ref: VersionTag
+          - Key: Project
+            Value:
+              Ref: ProjectTag
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: True
+      HealthCheckIntervalSeconds: 100
+      HealthCheckPort: 443
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: 90
+      HealthyThresholdCount: 3
+      Name: !Ref AWS::StackName
+      Port: 443
+      Protocol: HTTPS
+      Targets:
+        - Id:
+            Ref: WebInstance
+          Port: 443
+      TargetType: instance
+      VpcId:
+        Ref: VPC
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: DeploymentGroup
+          Value:
+            Ref: DeploymentGroup
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag
+
+  Loadbalencer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: !Ref AWS::StackName
+      Scheme: internet-facing
+      SecurityGroups:
+        - Ref: InstanceSecurityGroup
+      Subnets:
+        - Ref: Subnet1
+        - Ref: Subnet2
+      Type: application
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: DeploymentGroup
+          Value:
+            Ref: DeploymentGroup
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag
+
+  PlacementGroup:
+    Type: AWS::EC2::PlacementGroup
+    Properties:
+      Strategy: !FindInMap [SetPlacementGroup, !Ref "PlacementGroupsetup", !Ref PlacementGroupsetup]
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: DeploymentGroup
+          Value:
+            Ref: DeploymentGroup
+        - Key: ENV
+          Value:
+            Ref: ENVTag
+        - Key: Version
+          Value:
+            Ref: VersionTag
+        - Key: Project
+          Value:
+            Ref: ProjectTag
+
+########################################################################
