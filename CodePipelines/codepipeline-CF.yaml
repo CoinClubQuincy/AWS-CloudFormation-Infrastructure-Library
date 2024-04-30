@@ -163,7 +163,7 @@ Resources:
                 Version: '1'
               Configuration:
                 NotificationArn: !Ref CodePipelineSNSTopic
-                CustomData: !Sub 'A new change set was created for the ${ProdStackName} stack. Do you want to implement the changes?'
+                CustomData: !Sub 'A new change set was created for the ${ProdStackName} stack. Do you want to implement the changes?"
               RunOrder: '2'
             - Name: ExecuteChangeSet
               ActionTypeId:
@@ -177,6 +177,19 @@ Resources:
                 RoleArn: !GetAtt [CFNRole, Arn]
                 StackName: !Ref ProdStackName
               RunOrder: '3'
+            - Name: DeleteTestStack
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: DELETE_ONLY
+                RoleArn: !GetAtt [CFNRole, Arn]
+                StackName: !Ref TestStackName
+              RunOrder: '3'
+              OnFailure: Abort
+
   CFNRole:
     Type: AWS::IAM::Role
     Properties:
@@ -194,7 +207,16 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Action:
-                  - 'ec2:*'
+                  - 'ec2:Describe*'
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DeleteStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:CreateChangeSet'
+                  - 'cloudformation:ExecuteChangeSet'
+                  - 'cloudformation:DeleteChangeSet'
+                  - 'cloudformation:DescribeChangeSet'
+                  - 'cloudformation:SetStackPolicy'
                 Effect: Allow
                 Resource: '*'
 
@@ -215,7 +237,8 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Action:
-                - 's3:*'
+                - 's3:GetObject'
+                - 's3:PutObject'
                 - 'cloudformation:CreateStack'
                 - 'cloudformation:DescribeStacks'
                 - 'cloudformation:DeleteStack'
