@@ -26,13 +26,16 @@ AWS CodePipeline is a fully managed continuous delivery service that helps you a
 
 Amazon Virtual Private Cloud (Amazon VPC) lets you provision a logically isolated section of the AWS Cloud where you can launch AWS resources in a virtual network that you define. The templates in this library help you set up VPCs with public and private subnets, route tables, and internet gateways.
 
-### Lambda
+### Lambda & scripts
 
 AWS Lambda lets you run code without provisioning or managing servers. You pay only for the compute time you consume. The library includes templates for creating Lambda functions, setting up API Gateway triggers, and configuring IAM roles for Lambda.
+
+This library also includes a set of python scripts both for helping deployment but also lambda functions
 
 ## Getting Started
 
 To get started with this library, clone the repository and navigate to the desired template.
 
 ```bash
-git clone 
+git clone https://github.com/CoinClubQuincy/AWS-CloudFormation-Infrastructure-Library.git
+cd AWS-CloudFormation-Infrastructure-Library
