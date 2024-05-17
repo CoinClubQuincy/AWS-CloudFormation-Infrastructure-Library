@@ -1,136 +1,42 @@
 Parameters:
-  BranchName:
-    Description: CodeCommit branch name
+  AppName:
     Type: String
-    Default: master
-
-  RepositoryName:
-    Description: CodeComit repository name
-    Type: String
-    Default: myrepo
-
-  ApplicationName:
-    Description: CodeDeploy application name
-    Type: String
-    Default: DemoApplication
-
-  BetaFleet:
-    Description: Fleet configured in CodeDeploy
-    Type: String
-    Default: DemoFleet
+    Description: Name of the application
 
 Resources:
-  CodePipelineArtifactStoreBucket:
-    Type: 'AWS::S3::Bucket'
-  CodePipelineArtifactStoreBucketPolicy:
-    Type: 'AWS::S3::BucketPolicy'
-    Properties:
-      Bucket: !Ref CodePipelineArtifactStoreBucket
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Sid: DenyUnEncryptedObjectUploads
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:PutObject'
-            Resource: !Join
-              - ''
-              - - !GetAtt
-                  - CodePipelineArtifactStoreBucket
-                  - Arn
-                - /*
-            Condition:
-              StringNotEquals:
-                's3:x-amz-server-side-encryption': 'aws:kms'
-          - Sid: DenyInsecureConnections
-            Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
-            Resource: !Join
-              - ''
-              - - !GetAtt
-                  - CodePipelineArtifactStoreBucket
-                  - Arn
-                - /*
-            Condition:
-              Bool:
-                'aws:SecureTransport': false
-
-  AmazonCloudWatchEventRole:
+  CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
     Properties:
+      RoleName: 'AWS-CodePipeline-Service'
       AssumeRolePolicyDocument:
-        Version: 2012-10-17
+        Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service:
-                - events.amazonaws.com
+              Service: 
+                - 'codepipeline.amazonaws.com'
             Action: 'sts:AssumeRole'
-      Path: /
       Policies:
-        - PolicyName: cwe-pipeline-execution
+        - PolicyName: CodePipelinePolicy
           PolicyDocument:
-            Version: 2012-10-17
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: 'codepipeline:StartPipelineExecution'
-                Resource: !Join
-                  - ''
-                  - - 'arn:aws:codepipeline:'
-                    - !Ref 'AWS::Region'
-                    - ':'
-                    - !Ref 'AWS::AccountId'
-                    - ':'
-                    - !Ref AppPipeline
-      #####################CloudWatch###################
-  AmazonCloudWatchEventRule:
-    Type: 'AWS::Events::Rule'
-    Properties:
-      EventPattern:
-        source:
-          - aws.codecommit
-        detail-type:
-          - CodeCommit Repository State Change
-        resources:
-          - !Join
-            - ''
-            - - 'arn:aws:codecommit:'
-              - !Ref 'AWS::Region'
-              - ':'
-              - !Ref 'AWS::AccountId'
-              - ':'
-              - !Ref RepositoryName
-        detail:
-          event:
-            - referenceCreated
-            - referenceUpdated
-          referenceType:
-            - branch
-          referenceName:
-            - master
-      Targets:
-        - Arn: !Join
-            - ''
-            - - 'arn:aws:codepipeline:'
-              - !Ref 'AWS::Region'
-              - ':'
-              - !Ref 'AWS::AccountId'
-              - ':'
-              - !Ref AppPipeline
-          RoleArn: !GetAtt
-            - AmazonCloudWatchEventRole
-            - Arn
-          Id: codepipeline-AppPipeline
+                Action: '*'
+                Resource: '*'
 
-      #####################App Pipeline###################
-  AppPipeline:
-    Type: 'AWS::CodePipeline::Pipeline'
+  Pipeline:
+    DependsOn: 
+      - MyCodeCommitRepository
+      - CodePipelineServiceRole
+      - MyArtifactStoreBucket
+    Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: codecommit-events-pipeline
-      RoleArn: !GetAtt
-        - CodePipelineServiceRole
-        - Arn
+      Name: !Ref AppName
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore: 
+        Type: S3
+        Location: !Ref MyArtifactStoreBucket
       Stages:
         - Name: Source
           Actions:
@@ -143,102 +49,43 @@ Resources:
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
-                BranchName: !Ref BranchName
-                RepositoryName: !Ref RepositoryName
-                PollForSourceChanges: false
+                RepositoryName: !Ref MyCodeCommitRepository
+                BranchName: master
               RunOrder: 1
-        - Name: Beta
+        - Name: Build
           Actions:
-            - Name: BetaAction
-              InputArtifacts:
-                - Name: SourceOutput
+            - Name: BuildAction
               ActionTypeId:
-                Category: Deploy
+                Category: Build
                 Owner: AWS
                 Version: 1
-                Provider: CodeDeploy
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
               Configuration:
-                ApplicationName: !Ref ApplicationName
-                DeploymentGroupName: !Ref BetaFleet
+                ProjectName: !Ref AppName
               RunOrder: 1
-      ArtifactStore:
-        Type: S3
-        Location: !Ref CodePipelineArtifactStoreBucket
 
-      ##################### Pipeline Service Roles###################
-  CodePipelineServiceRole:
-    Type: 'AWS::IAM::Role'
+  MyArtifactStoreBucket:
+    Type: 'AWS::S3::Bucket'
     Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - codepipeline.amazonaws.com
-            Action: 'sts:AssumeRole'
-      Path: /
-      Policies:
-        - PolicyName: AWS-CodePipeline-Service-3
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'codecommit:CancelUploadArchive'
-                  - 'codecommit:GetBranch'
-                  - 'codecommit:GetCommit'
-                  - 'codecommit:GetUploadArchiveStatus'
-                  - 'codecommit:UploadArchive'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'codedeploy:CreateDeployment'
-                  - 'codedeploy:GetApplicationRevision'
-                  - 'codedeploy:GetDeployment'
-                  - 'codedeploy:GetDeploymentConfig'
-                  - 'codedeploy:RegisterApplicationRevision'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'codebuild:BatchGetBuilds'
-                  - 'codebuild:StartBuild'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'devicefarm:ListProjects'
-                  - 'devicefarm:ListDevicePools'
-                  - 'devicefarm:GetRun'
-                  - 'devicefarm:GetUpload'
-                  - 'devicefarm:CreateUpload'
-                  - 'devicefarm:ScheduleRun'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'lambda:InvokeFunction'
-                  - 'lambda:ListFunctions'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'iam:PassRole'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'elasticbeanstalk:*'
-                  - 'ec2:*'
-                  - 'elasticloadbalancing:*'
-                  - 'autoscaling:*'
-                  - 'cloudwatch:*'
-                  - 's3:*'
-                  - 'sns:*'
-                  - 'cloudformation:*'
-                  - 'rds:*'
-                  - 'sqs:*'
-                  - 'ecs:*'
-                Resource: '*'
+      BucketName: !Sub '${AppName}-artifact-store'
+
+  MyCodeCommitRepository:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref AppName
+      RepositoryDescription: My CodeCommit repository for the ${AppName} application
+
+Outputs:
+  PipelineUrl:
+    Description: URL of the created CodePipeline
+    Value: !Sub "https://console.aws.amazon.com/codesuite/codepipeline/pipelines/${AppName}/view"
+
+  RepositoryUri:
+      Description: The URI of the created ECR repository
+      Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryWallet}"
 
 
-
-
-
-#
