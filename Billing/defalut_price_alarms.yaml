@@ -1,0 +1,311 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create AWS Billing Alarms from $50 to $700 in $50 intervals'
+
+Parameters:
+  NotificationEmail:
+    Type: String
+    Description: 'Email address to receive billing alarm notifications'
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: 'Must be a valid email address'
+
+Resources:
+  BillingAlarmTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: 'Billing Alarm Notifications'
+      TopicName: 'BillingAlarmNotifications'
+
+  EmailSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      TopicArn: !Ref BillingAlarmTopic
+      Protocol: 'email'
+      Endpoint: !Ref NotificationEmail
+
+  BillingAlarmTopicPolicy:
+    Type: 'AWS::SNS::TopicPolicy'
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: 'sns:Publish'
+            Resource: !Ref BillingAlarmTopic
+      Topics:
+        - !Ref BillingAlarmTopic
+
+  BillingAlarm50:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $50'
+      AlarmName: 'BillingAlarm50'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm100:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $100'
+      AlarmName: 'BillingAlarm100'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm150:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $150'
+      AlarmName: 'BillingAlarm150'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 150
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm200:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $200'
+      AlarmName: 'BillingAlarm200'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 200
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm250:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $250'
+      AlarmName: 'BillingAlarm250'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 250
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm300:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $300'
+      AlarmName: 'BillingAlarm300'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 300
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm350:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $350'
+      AlarmName: 'BillingAlarm350'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 350
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm400:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $400'
+      AlarmName: 'BillingAlarm400'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 400
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm450:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $450'
+      AlarmName: 'BillingAlarm450'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 450
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm500:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $500'
+      AlarmName: 'BillingAlarm500'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 500
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm550:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $550'
+      AlarmName: 'BillingAlarm550'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 550
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm600:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $600'
+      AlarmName: 'BillingAlarm600'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm650:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $650'
+      AlarmName: 'BillingAlarm650'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 650
+      ComparisonOperator: GreaterThanThreshold
+
+  BillingAlarm700:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Billing alarm at $700'
+      AlarmName: 'BillingAlarm700'
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: Maximum
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 700
+      ComparisonOperator: GreaterThanThreshold
+
+Outputs:
+  BillingAlarmTopicARN:
+    Description: 'ARN of the SNS Topic for Billing Alarms'
+    Value: !Ref BillingAlarmTopic
+  NotificationEmail:
+    Description: 'Email address for billing notifications'
+    Value: !Ref NotificationEmail
