@@ -1,41 +1,124 @@
 # AWS CloudFormation Template Library
 
-This library provides a collection of AWS CloudFormation templates that allow you to easily build AWS infrastructure.
+A set of CloudFormation templates for common AWS infrastructure, written to be
+deployed as-is or copied into a larger stack.
 
-## Features
+Every template in this repository passes `cfn-lint` with zero errors, and CI
+enforces that on every push. Templates are plain CloudFormation with no
+transforms, no macros and no external dependencies.
 
-* Pre-built templates for common AWS infrastructure setups.
-* Easy to use and customize for your specific needs.
-* Supports a wide range of AWS services.
-
-## AWS Resources
-
-### Servers & EC2
-
-Amazon Elastic Compute Cloud (Amazon EC2) provides scalable computing capacity in the Amazon Web Services (AWS) Cloud. Using Amazon EC2 eliminates your need to invest in hardware up front, so you can develop and deploy applications faster. This library includes templates for setting up EC2 instances, configuring security groups, and more.
-
-### RDS
-
-Amazon Relational Database Service (Amazon RDS) makes it easy to set up, operate, and scale a relational database in the cloud. It provides cost-efficient and resizable capacity while automating time-consuming administration tasks. Our templates cover various RDS configurations, including multi-AZ deployments and read replicas.
-
-### CodePipelines
-
-AWS CodePipeline is a fully managed continuous delivery service that helps you automate your release pipelines for fast and reliable application and infrastructure updates. The library provides templates for setting up CodePipeline, including source control, build, and deployment stages.
-
-### VPCs
-
-Amazon Virtual Private Cloud (Amazon VPC) lets you provision a logically isolated section of the AWS Cloud where you can launch AWS resources in a virtual network that you define. The templates in this library help you set up VPCs with public and private subnets, route tables, and internet gateways.
-
-### Lambda & scripts
-
-AWS Lambda lets you run code without provisioning or managing servers. You pay only for the compute time you consume. The library includes templates for creating Lambda functions, setting up API Gateway triggers, and configuring IAM roles for Lambda.
-
-This library also includes a set of python scripts both for helping deployment but also lambda functions
-
-## Getting Started
-
-To get started with this library, clone the repository and navigate to the desired template.
+## Quick start
 
 ```bash
 git clone https://github.com/CoinClubQuincy/AWS-CloudFormation-Infrastructure-Library.git
 cd AWS-CloudFormation-Infrastructure-Library
+
+# inspect what a template needs before deploying it
+aws cloudformation validate-template --template-body file://S3/Basic-S3-Bucket.yaml
+
+aws cloudformation deploy \
+  --template-file S3/Basic-S3-Bucket.yaml \
+  --stack-name my-bucket \
+  --parameter-overrides ENVTag=dev \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+`--capabilities CAPABILITY_NAMED_IAM` is required for any template that creates
+IAM roles or policies.
+
+## Validating locally
+
+```bash
+pip install cfn-lint
+cfn-lint VPC/VPC.yaml            # one template
+cfn-lint $(find . -name '*.yaml')  # everything
+```
+
+## Secrets
+
+Templates that take a database password accept a Secrets Manager dynamic
+reference in place of plain text. Pass a value of the form
+`{{resolve:secretsmanager:SECRET_NAME:SecretString:password}}` rather than
+the password itself, and the value never appears in the stack parameters,
+console, or CloudTrail.
+
+## Templates
+
+
+### API
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`API/API-Gateway.yaml`](API/API-Gateway.yaml) | REST API Gateway with a proxy resource and a deployable stage. | `ProjectTag` |
+
+### Billing
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`Billing/default_price_alarms.yaml`](Billing/default_price_alarms.yaml) | 'CloudFormation template to create AWS Billing Alarms from $50 to $700 in $50 intervals' | `NotificationEmail` |
+
+### CI/CD
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`CodePipelines/Repos/CodeCommit.yaml`](CodePipelines/Repos/CodeCommit.yaml) | CodeCommit repository. | `ProjectTag`, `Description` |
+| [`CodePipelines/Repos/ECR.yaml`](CodePipelines/Repos/ECR.yaml) | ECR container registry with a lifecycle policy. | `ProjectTag` |
+| [`CodePipelines/codepipeline-CF.yaml`](CodePipelines/codepipeline-CF.yaml) | CodePipeline that deploys a CloudFormation stack through a change set, with a manual approval gate between test and production. | `PipelineName`, `S3Bucket`, `Email` |
+| [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit. | `AppName` |
+| [`CodePipelines/codepipeline-docker-build-lambda.yaml`](CodePipelines/codepipeline-docker-build-lambda.yaml) | CodePipeline that builds a Docker image and deploys it as a container Lambda. | `ResourceName` |
+| [`CodePipelines/codepipeline-github.yaml`](CodePipelines/codepipeline-github.yaml) | CodePipeline sourced from GitHub. | `GitHubOwner`, `GitHubSecret`, `GitHubOAuthToken`, `VersionTag`, `ProjectTag` |
+
+### Databases and queries
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`Database/Basic-DynamoDB.yaml`](Database/Basic-DynamoDB.yaml) | DynamoDB table with a configurable partition and sort key. | `PrimaryKey`, `SortKey`, `ProjectTag`, `DyanmoMap` |
+| [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `DBPass` (+2) |
+| [`Database/Basic-RDS.yaml`](Database/Basic-RDS.yaml) | RDS instance inside a VPC with a parameterised engine and size. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `DBPass` (+1) |
+| [`Database/Querys/AthenaLong.yaml`](Database/Querys/AthenaLong.yaml) | Athena named query, long form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+16) |
+| [`Database/Querys/AthenaShort.yaml`](Database/Querys/AthenaShort.yaml) | Athena named query, short form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+6) |
+| [`Database/Querys/OpenSearch.yaml`](Database/Querys/OpenSearch.yaml) | Amazon OpenSearch Service domain. Replaces the former Elasticsearch template: the service was renamed to OpenSearch Service and AWS::Elasticsearch::Domain is superseded by AWS::OpenSearchService::Domain. Encrypted at rest and in transit, never open to the public internet. | `DomainName`, `SubnetIds`, `SecurityGroupIds` |
+
+### IAM
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`IAM/IAM.yaml`](IAM/IAM.yaml) | Reusable IAM building blocks: a service role assumable by a chosen AWS service, an optional EC2 instance profile, and a customer-managed policy scoped to one S3 prefix. Written least-privilege by default rather than with wildcard actions. | `RoleName`, `ScopedBucketName` |
+
+### S3
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`S3/Basic-S3-Bucket.yaml`](S3/Basic-S3-Bucket.yaml) | S3 bucket with tagging. | `ProjectTag` |
+| [`S3/S3-Website.yaml`](S3/S3-Website.yaml) | S3 bucket configured for static website hosting. | `ProjectTag` |
+
+### Compute
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance with an HTTPS listener, region-to-AMI mapping and a CodeDeploy bucket lookup. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName`, `OS` (+1) |
+
+### Messaging and streaming
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`Transit-Notify/Kinesis.yaml`](Transit-Notify/Kinesis.yaml) | Kinesis data stream. | `ProjectTag` |
+| [`Transit-Notify/SNS-Sub.yaml`](Transit-Notify/SNS-Sub.yaml) | SNS topic subscriptions. Creates an email or HTTPS subscription against an existing topic, plus an optional SQS subscription complete with the queue policy SNS needs in order to deliver. Encrypted queue by default. | `TopicArn` |
+| [`Transit-Notify/SNS-Topics.yaml`](Transit-Notify/SNS-Topics.yaml) | SNS topic. | `ProjectTag` |
+| [`Transit-Notify/SQS.yaml`](Transit-Notify/SQS.yaml) | SQS queue. | `ProjectTag` |
+
+### Networking
+
+| Template | Creates | Required parameters |
+|---|---|---|
+| [`VPC/SG.yaml`](VPC/SG.yaml) | Security group with parameterised ingress rules. | `ProjectTag` |
+| [`VPC/VPC.yaml`](VPC/VPC.yaml) | Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway. | `ProjectTag` |
+
+## Contributing
+
+Templates must pass `cfn-lint` with zero errors before merge. Warnings are
+reported by CI but do not block.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

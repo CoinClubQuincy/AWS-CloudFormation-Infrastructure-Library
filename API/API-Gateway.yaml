@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: REST API Gateway with a proxy resource and a deployable stage.
 Parameters:
   ENVTag:
     Type: String

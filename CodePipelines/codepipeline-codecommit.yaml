@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline sourced from CodeCommit.
 Parameters:
   AppName:
     Type: String
@@ -77,15 +79,11 @@ Resources:
     Type: AWS::CodeCommit::Repository
     Properties:
       RepositoryName: !Ref AppName
-      RepositoryDescription: My CodeCommit repository for the ${AppName} application
+      RepositoryDescription: !Sub 'My CodeCommit repository for the ${AppName} application'
 
 Outputs:
   PipelineUrl:
     Description: URL of the created CodePipeline
     Value: !Sub "https://console.aws.amazon.com/codesuite/codepipeline/pipelines/${AppName}/view"
-
-  RepositoryUri:
-      Description: The URI of the created ECR repository
-      Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryWallet}"
 
 

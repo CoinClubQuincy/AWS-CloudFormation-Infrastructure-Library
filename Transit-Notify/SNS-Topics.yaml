@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SNS topic.
 Parameters:
   ENVTag:
     Type: String

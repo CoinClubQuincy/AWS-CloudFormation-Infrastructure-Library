@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kinesis data stream.
 Parameters:
   RetentionPeriod:
     Type: Number

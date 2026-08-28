@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 instance with an HTTPS listener, region-to-AMI mapping and a CodeDeploy bucket lookup.
 Parameters:
   InstanceTypeParameter:
     Type: String
@@ -129,11 +131,6 @@ Mappings:
       Amazonlinux2: ami-062f7200baf2fa504
       RedHat: ""
       CodeDeploy: aws-codedeploy-us-east-1
-    #                       (Ohio)
-    us-east-2:
-      Ubuntu: ami-046cfe1f8332fd5f2
-      Amazonlinux2: ""
-      RedHat: ""
     #                       (N. California)
     us-west-1:
       Ubuntu: "ami-a0b89fc0"

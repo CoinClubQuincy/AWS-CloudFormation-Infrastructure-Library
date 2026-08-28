@@ -1,0 +1,45 @@
+name: cfn-lint
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Validate CloudFormation templates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install cfn-lint
+        run: pip install --upgrade cfn-lint
+
+      # Errors fail the build. Warnings are reported but do not block, so style
+      # opinions never stop a correct template from shipping.
+      - name: Lint (errors block)
+        run: |
+          set -o pipefail
+          failed=0
+          for f in $(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort); do
+            out=$(cfn-lint "$f" 2>&1) || true
+            if echo "$out" | grep -q '^E[0-9]'; then
+              echo "::error file=$f::cfn-lint errors"
+              echo "$out"
+              failed=1
+            fi
+          done
+          exit $failed
+
+      - name: Warning report (non-blocking)
+        if: always()
+        run: |
+          for f in $(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort); do
+            out=$(cfn-lint "$f" 2>&1) || true
+            echo "$out" | grep '^W[0-9]' | sed "s|^|$f: |" || true
+          done

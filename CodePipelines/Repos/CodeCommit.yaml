@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeCommit repository.
 Parameters:
   ENVTag:
     Type: String

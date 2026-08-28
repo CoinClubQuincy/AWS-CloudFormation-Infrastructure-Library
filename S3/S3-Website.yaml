@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 bucket configured for static website hosting.
 Parameters:
   ENVTag:
     Type: String
@@ -20,8 +22,16 @@ Parameters:
 Resources:
   S3Bucket:
     Type: AWS::S3::Bucket
+    UpdateReplacePolicy: Retain
     Properties:
-      AccessControl: PublicRead
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
       MetricsConfigurations:
         - Id: EntireBucket
       BucketName: !Sub '${AWS::StackName}-${AWS::Region}-xxxx-stackbucket'

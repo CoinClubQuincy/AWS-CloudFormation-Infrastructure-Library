@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline sourced from GitHub.
 Parameters:
   BranchName:
     Description: GitHub branch name

@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS instance plus an EC2 application server in the same VPC.
 ####  Notes
 ####  1.When launching RDS to connect you must specify 1 IP in RDS Security Groups
 ####  2.Enable Public accessibility in modify section
@@ -115,7 +117,13 @@ Parameters:
 
   DBPass:
     Type: String
-    Description: NEEDS TO BE 8 DIGITS LONG
+    Description: >
+      Database master password. Prefer a Secrets Manager dynamic reference
+      over plain text. See the Secrets Manager section of the README.
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    ConstraintDescription: 8 to 41 characters.
 
   MultiAZs:
     Type: String

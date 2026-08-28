@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  SNS topic subscriptions. Creates an email or HTTPS subscription against an
+  existing topic, plus an optional SQS subscription complete with the queue
+  policy SNS needs in order to deliver. Encrypted queue by default.
+
+Parameters:
+  TopicArn:
+    Type: String
+    Description: ARN of the existing SNS topic to subscribe to.
+    AllowedPattern: '^arn:aws[a-zA-Z-]*:sns:[a-z0-9-]+:\d{12}:.+$'
+
+  Protocol:
+    Type: String
+    Description: Subscription protocol.
+    Default: email
+    AllowedValues: [email, email-json, https, sqs, lambda]
+
+  Endpoint:
+    Type: String
+    Description: >
+      Endpoint for the subscription. An address for email, a URL for https,
+      or a function ARN for lambda. Ignored when Protocol is sqs.
+    Default: ''
+
+  CreateQueueSubscription:
+    Type: String
+    Description: Also create an SQS queue and subscribe it to the topic.
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  FilterPolicyJson:
+    Type: String
+    Description: >
+      Optional SNS message filter policy as JSON, for example
+      {"eventType":["created","updated"]}. Empty means deliver everything.
+    Default: ''
+
+  ENVTag:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, stage, prod]
+
+Conditions:
+  WantsQueue: !Equals [!Ref CreateQueueSubscription, 'true']
+  HasFilter: !Not [!Equals [!Ref FilterPolicyJson, '']]
+  DirectSubscription: !Not [!Equals [!Ref Protocol, 'sqs']]
+
+Resources:
+
+  Subscription:
+    Type: AWS::SNS::Subscription
+    Condition: DirectSubscription
+    Properties:
+      TopicArn: !Ref TopicArn
+      Protocol: !Ref Protocol
+      Endpoint: !Ref Endpoint
+      FilterPolicy: !If [HasFilter, !Ref FilterPolicyJson, !Ref 'AWS::NoValue']
+
+  DeliveryQueue:
+    Type: AWS::SQS::Queue
+    Condition: WantsQueue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeliveryDLQ.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: ENV
+          Value: !Ref ENVTag
+
+  DeliveryDLQ:
+    Type: AWS::SQS::Queue
+    Condition: WantsQueue
+    Properties:
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: ENV
+          Value: !Ref ENVTag
+
+  # Without this policy SNS cannot deliver to the queue and messages are dropped silently.
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Condition: WantsQueue
+    Properties:
+      Queues:
+        - !Ref DeliveryQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSNSDelivery
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt DeliveryQueue.Arn
+            Condition:
+              ArnEquals:
+                'aws:SourceArn': !Ref TopicArn
+
+  QueueSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: WantsQueue
+    DependsOn: QueuePolicy
+    Properties:
+      TopicArn: !Ref TopicArn
+      Protocol: sqs
+      Endpoint: !GetAtt DeliveryQueue.Arn
+      RawMessageDelivery: true
+      FilterPolicy: !If [HasFilter, !Ref FilterPolicyJson, !Ref 'AWS::NoValue']
+
+Outputs:
+  SubscriptionArn:
+    Description: ARN of the direct subscription.
+    Condition: DirectSubscription
+    Value: !Ref Subscription
+
+  QueueUrl:
+    Description: URL of the delivery queue.
+    Condition: WantsQueue
+    Value: !Ref DeliveryQueue
+
+  QueueArn:
+    Description: ARN of the delivery queue.
+    Condition: WantsQueue
+    Value: !GetAtt DeliveryQueue.Arn
+
+  DeadLetterQueueArn:
+    Description: ARN of the dead letter queue.
+    Condition: WantsQueue
+    Value: !GetAtt DeliveryDLQ.Arn

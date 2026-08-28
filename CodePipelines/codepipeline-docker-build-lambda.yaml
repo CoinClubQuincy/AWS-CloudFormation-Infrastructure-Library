@@ -1,9 +1,28 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline that builds a Docker image and deploys it as a container Lambda.
 Parameters:
   ResourceName:
     Type: String
     Description: The base name for the resources
 Resources:
+
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
   CodeCommitRepo:
     Type: AWS::CodeCommit::Repository
     Properties:
@@ -109,6 +128,9 @@ Resources:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactBucket
       Stages:
         - Name: Source
           Actions:

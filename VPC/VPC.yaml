@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway.
 Parameters:
   vpcsize:
     Type: String
@@ -555,13 +557,6 @@ Resources:
       SubnetId:
         Ref: privateSub6
 
-  AssociationNat:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId:
-        Ref: PrivateRouteTable
-      SubnetId:
-        Ref: privateSub1
 
   EIP:
     Type: AWS::EC2::EIP
