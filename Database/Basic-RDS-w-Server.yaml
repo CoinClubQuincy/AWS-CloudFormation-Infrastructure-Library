@@ -50,7 +50,20 @@ Parameters:
 
   PrivateIP:
     Type: String
-    Description: private IP for RDS connection
+    Description: >-
+      CIDR range allowed to reach the database ports (1521, 3306, 1433 and
+      5432), for example 10.0.0.0/16. There is no default.
+    AllowedPattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$'
+    ConstraintDescription: must be an IPv4 CIDR block such as 10.0.0.0/16.
+
+  SSHLocation:
+    Type: String
+    Description: >-
+      CIDR range allowed to connect over SSH (port 22), for example
+      203.0.113.10/32. There is no default, so SSH is never open to the
+      internet unless you ask for 0.0.0.0/0.
+    AllowedPattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$'
+    ConstraintDescription: must be an IPv4 CIDR block such as 203.0.113.10/32.
 
   AllocatedStorages:
     Type: String
@@ -371,7 +384,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
+          CidrIp: !Ref SSHLocation
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443

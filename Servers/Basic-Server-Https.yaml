@@ -127,6 +127,15 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: "select key KeyPair"
 
+  SSHLocation:
+    Type: String
+    Description: >-
+      CIDR range allowed to connect over SSH (port 22), for example
+      203.0.113.10/32. There is no default, so SSH is never open to the
+      internet unless you ask for 0.0.0.0/0.
+    AllowedPattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$'
+    ConstraintDescription: must be an IPv4 CIDR block such as 203.0.113.10/32.
+
 Mappings:
   SetPlacementGroup:
     cluster:
@@ -187,7 +196,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
+          CidrIp: !Ref SSHLocation
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443

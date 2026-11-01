@@ -86,7 +86,7 @@ when it deletes the DB instance.
 | Template | Creates | Required parameters |
 |---|---|---|
 | [`Database/Basic-DynamoDB.yaml`](Database/Basic-DynamoDB.yaml) | DynamoDB table with a configurable partition and sort key. | `PrimaryKey`, `SortKey`, `ProjectTag`, `DyanmoMap` |
-| [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag`, `KeyName` |
+| [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `SSHLocation`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag`, `KeyName` |
 | [`Database/Basic-RDS.yaml`](Database/Basic-RDS.yaml) | RDS instance inside a VPC with a parameterised engine and size. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag` |
 | [`Database/Querys/AthenaLong.yaml`](Database/Querys/AthenaLong.yaml) | Athena named query, long form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+16) |
 | [`Database/Querys/AthenaShort.yaml`](Database/Querys/AthenaShort.yaml) | Athena named query, short form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+6) |
@@ -109,7 +109,7 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance in an HTTPS target group, plus an internet-facing Application Load Balancer with no listener or certificate. Add an HTTPS listener before it forwards traffic. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName` |
+| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance in an HTTPS target group, plus an internet-facing Application Load Balancer with no listener or certificate. Add an HTTPS listener before it forwards traffic. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName`, `SSHLocation` |
 
 ### Messaging and streaming
 
@@ -124,8 +124,8 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`VPC/SG.yaml`](VPC/SG.yaml) | Security group with parameterised ingress rules. | `ProjectTag` |
-| [`VPC/VPC.yaml`](VPC/VPC.yaml) | Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway. | `ProjectTag` |
+| [`VPC/SG.yaml`](VPC/SG.yaml) | Security group with parameterised ingress rules. | `VPC`, `PrivateSSMIP`, `SSHLocation`, `ProjectTag` |
+| [`VPC/VPC.yaml`](VPC/VPC.yaml) | Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway. | `ProjectTag`, `PrivateSSMIP`, `SSHLocation` |
 
 ## Contributing
 
