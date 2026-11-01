@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway.
+Description: >-
+  Multi-AZ VPC with public and private subnets, route tables, NAT and an
+  internet gateway. The subnets span the first three Availability Zones that
+  Fn::GetAZs returns, so the region needs at least three.
 Parameters:
   vpcsize:
     Type: String
@@ -35,212 +38,6 @@ Parameters:
     Description: private IP for RDS connection
 
 
-##--------------------------Mapping to Regions --------------------------
-Mappings:
-  RegionMap:
-##--------------------------(N. Virginia)--------------------------
-    us-east-1:
-      A: us-east-1a
-      B: us-east-1b
-      C: us-east-1c
-      D: us-east-1d
-      E: us-east-1e
-      F: us-east-1f
-      s3: com.amazonaws.us-east-1.s3
-      dynamodb: com.amazonaws.us-east-1.dynamodb
-      ec2: com.amazonaws.us-east-1.ec2
-      kinesisstreams: com.amazonaws.us-east-1.kinesis-streams
-      ssm: com.amazonaws.us-east-1.ssm
-      ELB: com.amazonaws.us-east-1.elasticloadbalancing
-##--------------------------(N. California)--------------------------
-    us-west-1:
-      A: us-west-1a
-      B: us-west-1b
-      C: us-west-1c
-      s3: com.amazonaws.us-west-1.s3
-      dynamodb: com.amazonaws.us-west-1.dynamodb
-      ec2: com.amazonaws.us-west-1.ec2
-      kinesisstreams: com.amazonaws.us-west-1.kinesis-streams
-      ssm: com.amazonaws.us-west-1.ssm
-      ELB: com.amazonaws.us-west-1.elasticloadbalancing
-##--------------------------(Oregon)--------------------------
-    us-west-2:
-      A: us-west-2a
-      B: us-west-2b
-      C: us-west-2c
-      D: us-west-2d
-      s3: com.amazonaws.us-west-2.s3
-      dynamodb: com.amazonaws.us-west-2.dynamodb
-      ec2: com.amazonaws.us-west-2.ec2
-      kinesisstreams: com.amazonaws.us-west-2.kinesis-streams
-      ssm: com.amazonaws.us-west-2.ssm
-      ELB: com.amazonaws.us-west-2.elasticloadbalancing
-##--------------------------(Ireland)--------------------------
-    eu-west-1:
-      A: eu-west-1a
-      B: eu-west-1b
-      C: eu-west-1c
-      s3: com.amazonaws.eu-west-1.s3
-      dynamodb: com.amazonaws.eu-west-1.dynamodb
-      ec2: com.amazonaws.eu-west-1.ec2
-      kinesisstreams: com.amazonaws.eu-west-1.kinesis-streams
-      ssm: com.amazonaws.eu-west-1.ssm
-      ELB: com.amazonaws.eu-west-1.elasticloadbalancing
-##--------------------------(Tokyo)--------------------------
-    ap-northeast-1:
-      A: eu-west-1a
-      B: eu-west-1b
-      C: eu-west-1c
-      s3: com.amazonaws.ap-northeast-1.s3
-      dynamodb: com.amazonaws.ap-northeast-1.dynamodb
-      ec2: com.amazonaws.ap-northeast-1.ec2
-      kinesisstreams: com.amazonaws.ap-northeast-1.kinesis-streams
-      ssm: com.amazonaws.ap-northeast-1.ssm
-      ELB: com.amazonaws.ap-northeast-1.elasticloadbalancing
-##--------------------------(Singapore)--------------------------
-    ap-southeast-1:
-      A: ap-southeast-1a
-      B: ap-southeast-1b
-      C: ap-southeast-1c
-      s3: com.amazonaws.ap-southeast-1.s3
-      dynamodb: com.amazonaws.ap-southeast-1.dynamodb
-      ec2: com.amazonaws.ap-southeast-1.ec2
-      kinesisstreams: com.amazonaws.ap-southeast-1.kinesis-streams
-      ssm: com.amazonaws.ap-southeast-1.ssm
-      ELB: com.amazonaws.ap-southeast-1.elasticloadbalancing
-##--------------------------(Sydney)--------------------------
-    ap-southeast-2:
-      A: ap-southeast-2a
-      B: ap-southeast-2b
-      C: ap-southeast-2c
-      s3: com.amazonaws.ap-southeast-2.s3
-      dynamodb: com.amazonaws.ap-southeast-2.dynamodb
-      ec2: com.amazonaws.ap-southeast-2.ec2
-      kinesisstreams: com.amazonaws.ap-southeast-2.kinesis-streams
-      ssm: com.amazonaws.ap-southeast-2.ssm
-      ELB: com.amazonaws.ap-southeast-2.elasticloadbalancing
-##--------------------------(São Paulo)--------------------------
-    sa-east-1:
-      A: sa-east-1a
-      B: sa-east-1b
-      C: sa-east-1c
-      s3: com.amazonaws.sa-east-1.s3
-      dynamodb: com.amazonaws.sa-east-1.dynamodb
-      ec2: com.amazonaws.sa-east-1.ec2
-      kinesisstreams: com.amazonaws.sa-east-1.kinesis-streams
-      ssm: com.amazonaws.sa-east-1.ssm
-      ELB: com.amazonaws.sa-east-1.elasticloadbalancing
-##--------------------------(Frankfurt)--------------------------
-    eu-central-1:
-      A: eu-central-1a
-      B: eu-central-1b
-      C: eu-central-1a
-      s3: com.amazonaws.eu-central-1.s3
-      dynamodb: com.amazonaws.eu-central-1.dynamodb
-      ec2: com.amazonaws.eu-central-1.ec2
-      kinesisstreams: com.amazonaws.eu-central-1.kinesis-streams
-      ssm: com.amazonaws.eu-central-1.ssm
-      ELB: com.amazonaws.eu-central-1.elasticloadbalancing
-##--------------------------(Hong Kong)--------------------------
-    ap-east-1:
-      A: ap-east-1a
-      B: ap-east-1b
-      C: ap-east-1c
-      s3: com.amazonaws.ap-east-1.s3
-      dynamodb: com.amazonaws.ap-east-1.dynamodb
-      ec2: com.amazonaws.ap-east-1.ec2
-      kinesisstreams: com.amazonaws.ap-east-1.kinesis-streams
-      ssm: com.amazonaws.ap-east-1.ssm
-      ELB: com.amazonaws.ap-east-1.elasticloadbalancing
-##--------------------------(Mumbai)--------------------------
-    ap-south-1:
-      A: ap-south-1a
-      B: ap-south-1b
-      C: ap-south-1c
-      s3: com.amazonaws.ap-south-1.s3
-      dynamodb: com.amazonaws.ap-south-1.dynamodb
-      ec2: com.amazonaws.ap-south-1.ec2
-      kinesisstreams: com.amazonaws.ap-south-1.kinesis-streams
-      ssm: com.amazonaws.ap-south-1.ssm
-      ELB: com.amazonaws.ap-south-1.elasticloadbalancing
-##--------------------------(Seoul)--------------------------
-    ap-northeast-2:
-      A: ap-northeast-2a
-      B: ap-northeast-2b
-      C: ap-northeast-2c
-      s3: com.amazonaws.ap-northeast-2.s3
-      dynamodb: com.amazonaws.ap-northeast-2.dynamodb
-      ec2: com.amazonaws.ap-northeast-2.ec2
-      kinesisstreams: com.amazonaws.ap-northeast-2.kinesis-streams
-      ssm: com.amazonaws.ap-northeast-2.ssm
-      ELB: com.amazonaws.ap-northeast-2.elasticloadbalancing
-##--------------------------(Canada)--------------------------
-    ca-central-1:
-      A: ca-central-1a
-      B: ca-central-1b
-      C: ca-central-1a
-      s3: com.amazonaws.ca-central-1.s3
-      dynamodb: com.amazonaws.ca-central-1.dynamodb
-      ec2: com.amazonaws.ca-central-1.ec2
-      kinesisstreams: com.amazonaws.ca-central-1.kinesis-streams
-      ssm: com.amazonaws.ca-central-1.ssm
-      ELB: com.amazonaws.ca-central-1.elasticloadbalancing
-##--------------------------(London)--------------------------
-    eu-west-2:
-      A: eu-west-2a
-      B: eu-west-2b
-      C: eu-west-2c
-      s3: com.amazonaws.eu-west-2.s3
-      dynamodb: com.amazonaws.eu-west-2.dynamodb
-      ec2: com.amazonaws.eu-west-2.ec2
-      kinesisstreams: com.amazonaws.eu-west-2.kinesis-streams
-      ssm: com.amazonaws.eu-west-2.ssm
-      ELB: com.amazonaws.eu-west-2.elasticloadbalancing
-##--------------------------(Paris)--------------------------
-    eu-west-3:
-      A: eu-west-3a
-      B: eu-west-3b
-      C: eu-west-3c
-      s3: com.amazonaws.eu-west-3.s3
-      dynamodb: com.amazonaws.eu-west-3.dynamodb
-      ec2: com.amazonaws.eu-west-3.ec2
-      kinesisstreams: com.amazonaws.eu-west-3.kinesis-streams
-      ssm: com.amazonaws.eu-west-3.ssm
-      ELB: com.amazonaws.eu-west-3.elasticloadbalancing
-##--------------------------(Stockholm)--------------------------
-    eu-north-1:
-      A: eu-north-1a
-      B: eu-north-1b
-      C: eu-north-1c
-      s3: com.amazonaws.eu-north-1.s3
-      dynamodb: com.amazonaws.eu-north-1.dynamodb
-      ec2: com.amazonaws.eu-north-1.ec2
-      kinesisstreams: com.amazonaws.eu-north-1.kinesis-streams
-      ssm: com.amazonaws.eu-north-1.ssm
-      ELB: com.amazonaws.eu-north-1.elasticloadbalancing
-##--------------------------(Middle East)--------------------------
-    me-south-1:
-      A: me-south-1a
-      B: me-south-1b
-      C: me-south-1c
-      s3: com.amazonaws.me-south-1.s3
-      dynamodb: com.amazonaws.me-south-1.dynamodb
-      ec2: com.amazonaws.me-south-1.ec2
-      kinesisstreams: com.amazonaws.me-south-1.kinesis-streams
-      ssm: com.amazonaws.me-south-1.ssm
-      ELB: com.amazonaws.me-south-1.elasticloadbalancing
-##--------------------------(Ohio)--------------------------
-    us-east-2:
-      A: us-east-2a
-      B: us-east-2b
-      C: us-east-2
-      s3: com.amazonaws.us-east-2.s3
-      dynamodb: com.amazonaws.us-east-2.dynamodb
-      ec2: com.amazonaws.us-east-2.ec2
-      kinesisstreams: com.amazonaws.us-east-2.kinesis-streams
-      ssm: com.amazonaws.us-east-2.ssm
-      ELB: com.amazonaws.us-east-2.elasticloadbalancing
-
 Resources:
 ##--------------------------Basic VPC Network Layout --------------------------
   myVPC:
@@ -270,7 +67,7 @@ Resources:
   privateSub1:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      AvailabilityZone: !Select [0, !GetAZs '']
       CidrBlock: "10.0.1.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -294,7 +91,7 @@ Resources:
   privateSub2:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      AvailabilityZone: !Select [1, !GetAZs '']
       CidrBlock: "10.0.2.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -318,7 +115,7 @@ Resources:
   privateSub3:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      AvailabilityZone: !Select [2, !GetAZs '']
       CidrBlock: "10.0.3.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -342,7 +139,7 @@ Resources:
   privateSub4:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      AvailabilityZone: !Select [0, !GetAZs '']
       CidrBlock: "10.0.4.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -366,7 +163,7 @@ Resources:
   privateSub5:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      AvailabilityZone: !Select [1, !GetAZs '']
       CidrBlock: "10.0.5.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -390,7 +187,7 @@ Resources:
   privateSub6:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      AvailabilityZone: !Select [2, !GetAZs '']
       CidrBlock: "10.0.6.0/26"
       MapPublicIpOnLaunch: false
       Tags:
@@ -414,7 +211,7 @@ Resources:
   publicSub1:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", A]
+      AvailabilityZone: !Select [0, !GetAZs '']
       CidrBlock: "10.0.7.0/26"
       MapPublicIpOnLaunch: true
       Tags:
@@ -438,7 +235,7 @@ Resources:
   publicSub2:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", B]
+      AvailabilityZone: !Select [1, !GetAZs '']
       CidrBlock: "10.0.8.0/26"
       MapPublicIpOnLaunch: true
       Tags:
@@ -462,7 +259,7 @@ Resources:
   publicSub3:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", C]
+      AvailabilityZone: !Select [2, !GetAZs '']
       CidrBlock: "10.0.9.0/26"
       MapPublicIpOnLaunch: true
       Tags:
@@ -576,7 +373,7 @@ Resources:
       PrivateDnsEnabled: false
       RouteTableIds:
         - !Ref PrivateRouteTable
-      ServiceName: !FindInMap [RegionMap, !Ref "AWS::Region", s3]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
       VpcEndpointType: Gateway
       VpcId:
         Ref: myVPC
