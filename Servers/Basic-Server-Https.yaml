@@ -115,128 +115,19 @@ Parameters:
       - "cluster"
     Description: "Choose placement group"
 
-  OperatingSystem:
-    Type: String
-    Default: Amazonlinux2
-    AllowedValues:
-      - Ubuntu
-      - Amazonlinux2
-      - RedHat
-    Description: Choose OS
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >-
+      Public SSM parameter that holds the AMI ID, resolved in the stack's region.
+      The default is the latest Amazon Linux 2023 (x86_64). For Ubuntu 24.04 use
+      /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id.
 
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: "select key KeyPair"
 
 Mappings:
-  OS:
-    #                       (N. Virginia)
-    us-east-1:
-      Ubuntu: ami-0c37ee902a7924ed2
-      Amazonlinux2: ami-062f7200baf2fa504
-      RedHat: ""
-      CodeDeploy: aws-codedeploy-us-east-1
-    #                       (N. California)
-    us-west-1:
-      Ubuntu: "ami-a0b89fc0"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-us-west-1"
-    #                       (Oregon)
-    us-west-2:
-      Ubuntu: "ami-830c94e3"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-us-west-2"
-    #                       (Ireland)
-    eu-west-1:
-      Ubuntu: "ami-ee0b0688"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-eu-west-1"
-    #                       (Tokyo)
-    ap-northeast-1:
-      Ubuntu: "ami-66182e01"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-northeast-1"
-    #                       (Singapore)
-    ap-southeast-1:
-      Ubuntu: "ami-f556ec96"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-southeast-1"
-    #                       (Sydney)
-    ap-southeast-2:
-      Ubuntu: "ami-4e101b2d"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-southeast-2"
-    #                       (São Paulo)
-    sa-east-1:
-      Ubuntu: "ami-09533f65"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-sa-east-1"
-    #                       (Frankfurt)
-    eu-central-1:
-      Ubuntu: "ami-3c15ca53"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-eu-central-1"
-    #                       (Hong Kong)
-    ap-east-1:
-      Ubuntu: "ami-dbc3b9aa"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-east-1"
-    #                       (Mumbai)
-    ap-south-1:
-      Ubuntu: "ami-0bb8408b37500e3be"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-south-1"
-    #                       (Seoul)
-    ap-northeast-2:
-      Ubuntu: "ami-0933d0fdfb094bfd1"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ap-northeast-2"
-    #                       (Canada)
-    ca-central-1:
-      Ubuntu: "ami-06542ef8c1ce7161a"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-ca-central-1"
-    #                       (London)
-    eu-west-2:
-      Ubuntu: "ami-0a6aae90571909e92"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-eu-west-2"
-    #                       (Paris)
-    eu-west-3:
-      Ubuntu: "ami-0a930ecbcb574cb4e"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-eu-west-3"
-    #                       (Stockholm)
-    eu-north-1:
-      Ubuntu: "ami-57b13f29"
-      Amazonlinux2: ""
-      RedHat: ""
-    #                       (Middle East)
-    me-south-1:
-      Ubuntu: "ami-0536d05d09d51d545"
-      Amazonlinux2: ""
-      RedHat: ""
-    #                       (Ohio)
-    us-east-2:
-      Ubuntu: "ami-046cfe1f8332fd5f2"
-      Amazonlinux2: ""
-      RedHat: ""
-      CodeDeploy: "aws-codedeploy-us-east-2"
-
   SetPlacementGroup:
     cluster:
       cluster: "cluster"
@@ -259,7 +150,7 @@ Resources:
     Properties:
         InstanceType:
           Ref: InstanceTypeParameter
-        ImageId: !FindInMap [ OS, !Ref "AWS::Region", !Ref OperatingSystem]
+        ImageId: !Ref LatestAmiId
         SecurityGroupIds:
           - Ref: InstanceSecurityGroup
         SubnetId:

@@ -109,7 +109,7 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance in an HTTPS target group, plus an internet-facing Application Load Balancer with no listener or certificate. Add an HTTPS listener before it forwards traffic. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName`, `OS` (+1) |
+| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance in an HTTPS target group, plus an internet-facing Application Load Balancer with no listener or certificate. Add an HTTPS listener before it forwards traffic. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName` |
 
 ### Messaging and streaming
 

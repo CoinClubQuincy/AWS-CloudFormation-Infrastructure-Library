@@ -173,6 +173,14 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: "select key KeyPair"
 
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >-
+      Public SSM parameter that holds the AMI ID for the application server,
+      resolved in the stack's region. The default is the latest Amazon Linux 2023
+      (x86_64). The user data installs Docker with dnf, so it expects AL2023.
+
 Mappings:
   RegionMap:
 ##--------------------------(N. Virginia)--------------------------
@@ -393,7 +401,7 @@ Resources:
     Properties:
         InstanceType:
           Ref: InstanceTypeParameter2
-        ImageId: ami-830c94e3
+        ImageId: !Ref LatestAmiId
         SecurityGroupIds:
           - Ref: InstanceSecurityGroup
         SubnetId:
@@ -401,13 +409,11 @@ Resources:
         KeyName:
           Ref: KeyName
         UserData:
-          Fn::Base64: !Sub |
-              !/bin/bash -xe
-              sudo apt-get update
-              sudo apt install docker.io
-              sudo systemctl start docker
-              sudo systemctl enable docker
-              docker --version
+          Fn::Base64: |
+            #!/bin/bash -xe
+            dnf install -y docker
+            systemctl enable --now docker
+            docker --version
 
         Tags:
           - Key: Name
