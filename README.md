@@ -1,11 +1,16 @@
 # AWS CloudFormation Template Library
 
-A set of CloudFormation templates for common AWS infrastructure, written to be
-deployed as-is or copied into a larger stack.
+A set of CloudFormation templates for common AWS infrastructure, meant as
+starting points to adapt or to copy into a larger stack.
 
-Every template in this repository passes `cfn-lint` with zero errors, and CI
-enforces that on every push (a linter crash fails the build too). Templates are plain CloudFormation with no
-transforms, no macros and no external dependencies.
+Every template in this repository is validated with `cfn-lint` and has zero
+errors. CI runs `cfn-lint` on every pull request and on pushes to `master` or
+`main`, and an error or a linter crash fails the build. Linting checks template
+syntax, resource properties and references. It does not create anything in
+AWS, and these templates have not been deployed as part of that check.
+Templates are plain CloudFormation with no transforms or macros. Several need
+resources that already exist in your account; see
+[Prerequisites and known limitations](#prerequisites-and-known-limitations).
 
 ## Quick start
 
@@ -57,7 +62,37 @@ when it deletes the DB instance.
 
 ## Prerequisites and known limitations
 
-- `VPC/VPC.yaml` creates a NAT gateway (with an Elastic IP) and a route table,
+- **CodeCommit.** `CodePipelines/Repos/CodeCommit.yaml`,
+  `CodePipelines/codepipeline-codecommit.yaml` and
+  `CodePipelines/codepipeline-docker-build-lambda.yaml` create CodeCommit
+  repositories. AWS CodeCommit is no longer available to new customers, so
+  these templates work only in accounts that already use CodeCommit.
+- **Billing alarms.** `Billing/default_price_alarms.yaml` alarms on the
+  `AWS/Billing` `EstimatedCharges` metric, which CloudWatch publishes only in
+  US East (N. Virginia). Deploy it in `us-east-1`, and first turn on
+  **Receive CloudWatch Billing Alerts** in the Billing console. In any other
+  region the alarms stay in `INSUFFICIENT_DATA`. The alarm names are fixed, so
+  deploy it once per account.
+- **`codepipeline-github.yaml`** deploys to a CodeDeploy application and
+  deployment group that must already exist (`ApplicationName` and `BetaFleet`,
+  defaults `DemoApplication` and `DemoFleet`). It does not create them. It uses
+  the GitHub (via OAuth app) source action, which AWS no longer recommends.
+  `GitHubOAuthToken` must be a personal access token with the `repo` and
+  `admin:repo_hook` scopes.
+- **`codepipeline-CF.yaml`** reads its source from an existing S3 bucket
+  (`S3Bucket`) in the same region. Versioning must be enabled on that bucket,
+  and it must contain the `SourceS3Key` ZIP (default
+  `wordpress-single-instance.zip`).
+- **Existing resources.** Templates with VPC, subnet, key pair, security group
+  or topic parameters expect those resources to exist already.
+  `VPC/VPC.yaml` can create the network.
+- **Stack names.** `S3/Basic-S3-Bucket.yaml`, `S3/S3-Website.yaml`,
+  `VPC/VPC.yaml` and `CodePipelines/Repos/ECR.yaml` build S3 bucket or ECR
+  repository names from the stack name, so the stack name must be lowercase and
+  short enough for the 63-character bucket-name limit. The RDS templates use
+  the stack name as the database name for MySQL, MariaDB and PostgreSQL, so for
+  those engines it must contain only letters and digits.
+- **NAT gateway.** `VPC/VPC.yaml` creates a NAT gateway (with an Elastic IP) and a route table,
   `NATRouteTable`, whose default route points at it. No subnet is associated
   with that route table, so the private subnets have no internet egress, and
   the NAT gateway and Elastic IP are billed without being used. To give a
@@ -86,7 +121,7 @@ when it deletes the DB instance.
 | [`CodePipelines/Repos/CodeCommit.yaml`](CodePipelines/Repos/CodeCommit.yaml) | CodeCommit repository. | `ProjectTag`, `Description` |
 | [`CodePipelines/Repos/ECR.yaml`](CodePipelines/Repos/ECR.yaml) | ECR repository named after the stack, so the stack name must be lowercase. No lifecycle policy. | `ProjectTag` |
 | [`CodePipelines/codepipeline-CF.yaml`](CodePipelines/codepipeline-CF.yaml) | CodePipeline that deploys a CloudFormation stack through a change set, with a manual approval gate between test and production. | `PipelineName`, `S3Bucket`, `Email` |
-| [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit that deploys a CloudFormation template from the repo (Source → Deploy, no build stage). The deploy role gets only the managed policies you pass. | `AppName`, `DeployStackName`, `DeployPolicyArns`, `BranchName`, `TemplatePath` |
+| [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit that deploys a CloudFormation template from the repo (Source → Deploy, no build stage). The deploy role gets only the managed policies you pass. | `AppName`, `DeployStackName`, `DeployPolicyArns` |
 | [`CodePipelines/codepipeline-docker-build-lambda.yaml`](CodePipelines/codepipeline-docker-build-lambda.yaml) | CodeCommit and ECR repositories, a privileged CodeBuild project, and a CodePipeline that runs CodeCommit, then CodeBuild, then CodeDeploy. The CodeDeploy deployment group is an EC2/on-premises one with no targets. No Lambda function is created. | `ResourceName` |
 | [`CodePipelines/codepipeline-github.yaml`](CodePipelines/codepipeline-github.yaml) | CodePipeline sourced from GitHub. | `GitHubOwner`, `GitHubSecret`, `GitHubOAuthToken`, `VersionTag`, `ProjectTag` |
 
@@ -94,11 +129,11 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`Database/Basic-DynamoDB.yaml`](Database/Basic-DynamoDB.yaml) | DynamoDB table with a configurable partition and sort key. | `PrimaryKey`, `SortKey`, `ProjectTag`, `DyanmoMap` |
+| [`Database/Basic-DynamoDB.yaml`](Database/Basic-DynamoDB.yaml) | DynamoDB table with a configurable partition and sort key. | `PrimaryKey`, `SortKey`, `ProjectTag` |
 | [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `SSHLocation`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag`, `KeyName` |
 | [`Database/Basic-RDS.yaml`](Database/Basic-RDS.yaml) | RDS instance inside a VPC with a parameterised engine and size. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag` |
-| [`Database/Querys/AthenaLong.yaml`](Database/Querys/AthenaLong.yaml) | Athena named query, long form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+16) |
-| [`Database/Querys/AthenaShort.yaml`](Database/Querys/AthenaShort.yaml) | Athena named query, short form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+6) |
+| [`Database/Querys/AthenaLong.yaml`](Database/Querys/AthenaLong.yaml) | Athena named query, long form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4`, `Query5`, `Query6`, `Query7`, `Query8`, `Query9`, `Query10`, `Query11`, `Query12`, `Query13`, `Query14`, `Query15`, `Query16`, `Query17`, `Query18`, `Query19`, `Query20` |
+| [`Database/Querys/AthenaShort.yaml`](Database/Querys/AthenaShort.yaml) | Athena named query, short form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4`, `Query5`, `Query6`, `Query7`, `Query8`, `Query9`, `Query10` |
 | [`Database/Querys/OpenSearch.yaml`](Database/Querys/OpenSearch.yaml) | Amazon OpenSearch Service domain. Replaces the former Elasticsearch template: the service was renamed to OpenSearch Service and AWS::Elasticsearch::Domain is superseded by AWS::OpenSearchService::Domain. Encrypted at rest and in transit, never open to the public internet. | `DomainName`, `SubnetIds`, `SecurityGroupIds` |
 
 ### IAM
