@@ -1,20 +1,30 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  CodePipeline sourced from CodeCommit, with its own CodeBuild project. The repository must contain a
-  buildspec.yml at its root. Both service roles are scoped to the resources this stack creates.
+  CodePipeline sourced from CodeCommit that deploys a CloudFormation template from the repository
+  (Source -> Deploy, no build stage). The pipeline role is scoped to the resources this stack creates;
+  what the deployed stack may create is set by the managed policies passed in DeployPolicyArns.
 Parameters:
   AppName:
     Type: String
-    Description: Name of the application (lowercase; also used for the repository, project and bucket names)
+    Description: Name of the application (lowercase; also used for the repository, pipeline and bucket names)
     AllowedPattern: '^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$'
   BranchName:
     Type: String
     Default: main
     Description: Branch that triggers the pipeline
-  BuildImage:
+  TemplatePath:
     Type: String
-    Default: aws/codebuild/amazonlinux2-x86_64-standard:5.0
-    Description: CodeBuild managed image
+    Default: template.yaml
+    Description: Path of the CloudFormation template inside the repository
+  DeployStackName:
+    Type: String
+    Description: Name of the stack the pipeline creates and updates
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]{0,127}$'
+  DeployPolicyArns:
+    Type: CommaDelimitedList
+    Description: >-
+      Managed policy ARNs that CloudFormation may use when deploying the stack. Grant only what the
+      deployed template creates.
 
 Resources:
   MyArtifactStoreBucket:
@@ -37,52 +47,19 @@ Resources:
       RepositoryName: !Ref AppName
       RepositoryDescription: !Sub 'My CodeCommit repository for the ${AppName} application'
 
-  CodeBuildServiceRole:
+  # The role CloudFormation assumes to create/update the deployed stack.
+  CloudFormationDeployRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: !Sub '${AppName}-codebuild-service'
+      RoleName: !Sub '${AppName}-cloudformation-deploy'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service: codebuild.amazonaws.com
+              Service: cloudformation.amazonaws.com
             Action: 'sts:AssumeRole'
-      Policies:
-        - PolicyName: CodeBuildPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource:
-                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${AppName}'
-                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${AppName}:*'
-              - Effect: Allow
-                Action:
-                  - 's3:GetObject'
-                  - 's3:GetObjectVersion'
-                  - 's3:PutObject'
-                Resource: !Sub '${MyArtifactStoreBucket.Arn}/*'
-
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Ref AppName
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: buildspec.yml
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: !Ref BuildImage
-      TimeoutInMinutes: 30
+      ManagedPolicyArns: !Ref DeployPolicyArns
 
   CodePipelineServiceRole:
     Type: 'AWS::IAM::Role'
@@ -123,9 +100,21 @@ Resources:
                 Resource: !GetAtt MyCodeCommitRepository.Arn
               - Effect: Allow
                 Action:
-                  - 'codebuild:StartBuild'
-                  - 'codebuild:BatchGetBuilds'
-                Resource: !GetAtt CodeBuildProject.Arn
+                  - 'cloudformation:CreateStack'
+                  - 'cloudformation:UpdateStack'
+                  - 'cloudformation:DeleteStack'
+                  - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:CreateChangeSet'
+                  - 'cloudformation:DescribeChangeSet'
+                  - 'cloudformation:ExecuteChangeSet'
+                  - 'cloudformation:DeleteChangeSet'
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${DeployStackName}/*'
+              - Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: !GetAtt CloudFormationDeployRole.Arn
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': cloudformation.amazonaws.com
 
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -151,20 +140,22 @@ Resources:
                 BranchName: !Ref BranchName
                 PollForSourceChanges: false
               RunOrder: 1
-        - Name: Build
+        - Name: Deploy
           Actions:
-            - Name: BuildAction
+            - Name: DeployStack
               ActionTypeId:
-                Category: Build
+                Category: Deploy
                 Owner: AWS
                 Version: '1'
-                Provider: CodeBuild
+                Provider: CloudFormation
               InputArtifacts:
                 - Name: SourceOutput
-              OutputArtifacts:
-                - Name: BuildOutput
               Configuration:
-                ProjectName: !Ref CodeBuildProject
+                ActionMode: CREATE_UPDATE
+                StackName: !Ref DeployStackName
+                TemplatePath: !Sub 'SourceOutput::${TemplatePath}'
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CloudFormationDeployRole.Arn
               RunOrder: 1
 
   # PollForSourceChanges is off, so a branch push starts the pipeline through this rule.
@@ -217,6 +208,6 @@ Outputs:
   RepositoryCloneUrlHttp:
     Description: HTTPS clone URL of the CodeCommit repository
     Value: !GetAtt MyCodeCommitRepository.CloneUrlHttp
-  CodeBuildProjectName:
-    Description: CodeBuild project the pipeline runs
-    Value: !Ref CodeBuildProject
+  DeployedStackName:
+    Description: Stack the pipeline creates and updates
+    Value: !Ref DeployStackName
