@@ -119,11 +119,13 @@ Parameters:
 
   DBEncryption:
     Type: String
-    Default: false
+    Default: true
     AllowedValues:
       - false
       - true
-    Description: Choose encryption
+    Description: >-
+      Encrypt the DB storage with the aws/rds KMS key. Changing this replaces
+      the DB instance, so a stack created with false must keep false.
 
   StorageType:
     Type: String
@@ -171,6 +173,9 @@ Conditions:
 Resources:
   RDS:
     Type: AWS::RDS::DBInstance
+    # Keep a final snapshot if the stack deletes or replaces the instance.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       AllocatedStorage:
         Ref: AllocatedStorages
