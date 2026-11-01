@@ -62,7 +62,7 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`API/API-Gateway.yaml`](API/API-Gateway.yaml) | REST API Gateway with a proxy resource and a deployable stage. | `ProjectTag` |
+| [`API/API-Gateway.yaml`](API/API-Gateway.yaml) | API Gateway REST API with no resources, methods, deployment or stage. Add those before it can serve requests. | `ProjectTag` |
 
 ### Billing
 
@@ -75,10 +75,10 @@ when it deletes the DB instance.
 | Template | Creates | Required parameters |
 |---|---|---|
 | [`CodePipelines/Repos/CodeCommit.yaml`](CodePipelines/Repos/CodeCommit.yaml) | CodeCommit repository. | `ProjectTag`, `Description` |
-| [`CodePipelines/Repos/ECR.yaml`](CodePipelines/Repos/ECR.yaml) | ECR container registry with a lifecycle policy. | `ProjectTag` |
+| [`CodePipelines/Repos/ECR.yaml`](CodePipelines/Repos/ECR.yaml) | ECR repository named after the stack, so the stack name must be lowercase. No lifecycle policy. | `ProjectTag` |
 | [`CodePipelines/codepipeline-CF.yaml`](CodePipelines/codepipeline-CF.yaml) | CodePipeline that deploys a CloudFormation stack through a change set, with a manual approval gate between test and production. | `PipelineName`, `S3Bucket`, `Email` |
 | [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit, with its own CodeBuild project and scoped service roles. The repository needs a `buildspec.yml` at its root. | `AppName`, `BranchName`, `BuildImage` |
-| [`CodePipelines/codepipeline-docker-build-lambda.yaml`](CodePipelines/codepipeline-docker-build-lambda.yaml) | CodePipeline that builds a Docker image and deploys it as a container Lambda. | `ResourceName` |
+| [`CodePipelines/codepipeline-docker-build-lambda.yaml`](CodePipelines/codepipeline-docker-build-lambda.yaml) | CodeCommit and ECR repositories, a privileged CodeBuild project, and a CodePipeline that runs CodeCommit, then CodeBuild, then CodeDeploy. The CodeDeploy deployment group is an EC2/on-premises one with no targets. No Lambda function is created. | `ResourceName` |
 | [`CodePipelines/codepipeline-github.yaml`](CodePipelines/codepipeline-github.yaml) | CodePipeline sourced from GitHub. | `GitHubOwner`, `GitHubSecret`, `GitHubOAuthToken`, `VersionTag`, `ProjectTag` |
 
 ### Databases and queries
@@ -109,7 +109,7 @@ when it deletes the DB instance.
 
 | Template | Creates | Required parameters |
 |---|---|---|
-| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance with an HTTPS listener, region-to-AMI mapping and a CodeDeploy bucket lookup. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName`, `OS` (+1) |
+| [`Servers/Basic-Server-Https.yaml`](Servers/Basic-Server-Https.yaml) | EC2 instance in an HTTPS target group, plus an internet-facing Application Load Balancer with no listener or certificate. Add an HTTPS listener before it forwards traffic. | `ProjectTag`, `VPC`, `Subnet1`, `Subnet2`, `KeyName`, `OS` (+1) |
 
 ### Messaging and streaming
 

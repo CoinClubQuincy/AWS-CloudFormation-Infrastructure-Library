@@ -1,5 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CodePipeline that builds a Docker image and deploys it as a container Lambda.
+Description: >-
+  CodeCommit and ECR repositories, a privileged CodeBuild project that runs the
+  repository's buildspec.yml with REPOSITORY_URI set to the ECR repository, and
+  a CodePipeline that runs CodeCommit (master branch), then CodeBuild, then
+  CodeDeploy. The deployment group uses CodeDeployDefault.OneAtATime, an
+  EC2/on-premises configuration, and has no targets. No Lambda function is
+  created.
 Parameters:
   ResourceName:
     Type: String

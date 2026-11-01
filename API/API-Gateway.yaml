@@ -1,5 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: REST API Gateway with a proxy resource and a deployable stage.
+Description: >-
+  API Gateway REST API named after the stack. It has no resources, methods,
+  deployment or stage, so add those before it can serve requests.
 Parameters:
   ENVTag:
     Type: String

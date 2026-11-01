@@ -1,5 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: EC2 instance with an HTTPS listener, region-to-AMI mapping and a CodeDeploy bucket lookup.
+Description: >-
+  EC2 instance registered in an HTTPS (port 443) target group, an
+  internet-facing Application Load Balancer, and a placement group that the
+  instance does not use. No listener or certificate is created, so the load
+  balancer forwards no traffic until you add an HTTPS listener. The ASGset,
+  ASGMin and ASGMax parameters are not used.
 Parameters:
   InstanceTypeParameter:
     Type: String

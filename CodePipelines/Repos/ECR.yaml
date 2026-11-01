@@ -1,5 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECR container registry with a lifecycle policy.
+Description: >-
+  ECR repository named after the stack, so the stack name must be lowercase.
+  It has no lifecycle policy: images are kept until you delete them.
 Parameters:
   ENVTag:
     Type: String
