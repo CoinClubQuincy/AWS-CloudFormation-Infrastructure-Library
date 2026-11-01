@@ -55,6 +55,15 @@ The identity that deploys the stack needs `secretsmanager:CreateSecret`,
 `secretsmanager:TagResource` and `kms:DescribeKey`. RDS deletes the secret
 when it deletes the DB instance.
 
+## Prerequisites and known limitations
+
+- `VPC/VPC.yaml` creates a NAT gateway (with an Elastic IP) and a route table,
+  `NATRouteTable`, whose default route points at it. No subnet is associated
+  with that route table, so the private subnets have no internet egress, and
+  the NAT gateway and Elastic IP are billed without being used. To give a
+  private subnet egress, add a `0.0.0.0/0` route to `NatGateway` in that
+  subnet's route table. Otherwise, remove the NAT resources from your copy.
+
 ## Templates
 
 
@@ -125,7 +134,7 @@ when it deletes the DB instance.
 | Template | Creates | Required parameters |
 |---|---|---|
 | [`VPC/SG.yaml`](VPC/SG.yaml) | Security group with parameterised ingress rules. | `VPC`, `PrivateSSMIP`, `SSHLocation`, `ProjectTag` |
-| [`VPC/VPC.yaml`](VPC/VPC.yaml) | Multi-AZ VPC with public and private subnets, route tables, NAT and an internet gateway. | `ProjectTag`, `PrivateSSMIP`, `SSHLocation` |
+| [`VPC/VPC.yaml`](VPC/VPC.yaml) | Multi-AZ VPC with three public subnets and six private subnets across three Availability Zones, an internet gateway, security groups and an S3 gateway endpoint. Creates a NAT gateway that no subnet uses; see [Prerequisites and known limitations](#prerequisites-and-known-limitations). | `ProjectTag`, `PrivateSSMIP`, `SSHLocation` |
 
 ## Contributing
 

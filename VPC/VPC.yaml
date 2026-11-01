@@ -1,8 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Multi-AZ VPC with public and private subnets, route tables, NAT and an
-  internet gateway. The subnets span the first three Availability Zones that
-  Fn::GetAZs returns, so the region needs at least three.
+  Multi-AZ VPC with three public subnets routed to an internet gateway and six
+  private subnets that have no route to the internet (the first private route
+  table has an S3 gateway endpoint). It also creates a NAT gateway and a route
+  table that sends 0.0.0.0/0 to it, but no subnet is associated with that
+  table, so the NAT gateway is billed and unused. Also creates three security
+  groups, an S3 bucket and four SSM parameters. The subnets span the first three
+  Availability Zones that Fn::GetAZs returns, so the region needs at least
+  three.
 Parameters:
   vpcsize:
     Type: String
