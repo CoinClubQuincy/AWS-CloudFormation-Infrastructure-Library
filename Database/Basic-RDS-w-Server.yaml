@@ -54,16 +54,16 @@ Parameters:
 
   AllocatedStorages:
     Type: String
-    Default: "10"
+    Default: "20"
     AllowedValues:
-      - "10"
+      - "20"
       - "50"
       - "100"
       - "400"
       - "600"
       - "800"
       - "1000"
-    Description: Label Enviroment Tag
+    Description: Allocated storage in GiB (gp2 and gp3 need at least 20)
 
   AZ:
     Type: String
@@ -151,12 +151,13 @@ Parameters:
 
   StorageType:
     Type: String
-    Default: standard
+    Default: gp3
     AllowedValues:
-      - standard
+      - gp3
       - gp2
-      - io1
-    Description: Choose encryption
+    Description: >-
+      Storage type. Magnetic (standard) storage can no longer be used for new
+      DB instances, and io1 needs an Iops value that this template does not set.
 
   ENVTag:
     Type: String
