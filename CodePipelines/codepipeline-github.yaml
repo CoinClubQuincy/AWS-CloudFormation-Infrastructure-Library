@@ -181,6 +181,9 @@ Resources:
                 - codepipeline.amazonaws.com
             Action: 'sts:AssumeRole'
       Path: /
+      # Only what the two stages use: the GitHub source action writes the artifact to the
+      # artifact bucket, and the Beta stage deploys it with the existing CodeDeploy
+      # application and deployment group (see the CodeDeploy action reference).
       Policies:
         - PolicyName: AWS-CodePipeline-Service-3
           PolicyDocument:
@@ -188,54 +191,33 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - 'codecommit:CancelUploadArchive'
-                  - 'codecommit:GetBranch'
-                  - 'codecommit:GetCommit'
-                  - 'codecommit:GetUploadArchiveStatus'
-                  - 'codecommit:UploadArchive'
-                Resource: '*'
+                  - 's3:GetBucketVersioning'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                Resource: !GetAtt CodePipelineArtifactStoreBucket.Arn
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:PutObjectAcl'
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                Resource: !Sub '${CodePipelineArtifactStoreBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:GetApplication'
                   - 'codedeploy:GetApplicationRevision'
                   - 'codedeploy:GetDeployment'
-                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:GetDeploymentGroup'
+                  - 'codedeploy:ListDeployments'
+                  - 'codedeploy:ListDeploymentGroups'
                   - 'codedeploy:RegisterApplicationRevision'
-                Resource: '*'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${ApplicationName}'
+                  - !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${ApplicationName}/${BetaFleet}'
               - Effect: Allow
-                Action:
-                  - 'codebuild:BatchGetBuilds'
-                  - 'codebuild:StartBuild'
-                Resource: '*'
+                Action: 'codedeploy:GetDeploymentConfig'
+                Resource: !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*'
               - Effect: Allow
-                Action:
-                  - 'devicefarm:ListProjects'
-                  - 'devicefarm:ListDevicePools'
-                  - 'devicefarm:GetRun'
-                  - 'devicefarm:GetUpload'
-                  - 'devicefarm:CreateUpload'
-                  - 'devicefarm:ScheduleRun'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'lambda:InvokeFunction'
-                  - 'lambda:ListFunctions'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'iam:PassRole'
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - 'elasticbeanstalk:*'
-                  - 'ec2:*'
-                  - 'elasticloadbalancing:*'
-                  - 'autoscaling:*'
-                  - 'cloudwatch:*'
-                  - 's3:*'
-                  - 'sns:*'
-                  - 'cloudformation:*'
-                  - 'rds:*'
-                  - 'sqs:*'
-                  - 'ecs:*'
+                Action: 'codedeploy:ListDeploymentConfigs'
                 Resource: '*'
