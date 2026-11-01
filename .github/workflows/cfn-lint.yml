@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The job only reads the repository.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Validate CloudFormation templates
@@ -17,8 +21,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Pinned so a new cfn-lint release cannot change the result without a commit here.
       - name: Install cfn-lint
-        run: pip install --upgrade cfn-lint
+        run: pip install cfn-lint==1.59.0
 
       # cfn-lint's exit code is a bitmask: 2 = errors, 4 = warnings, 8 = informational.
       # Only 0, 4, 8 and 12 (warnings and/or informational) pass. Errors (2), a linter

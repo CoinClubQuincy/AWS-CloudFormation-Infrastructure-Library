@@ -38,7 +38,7 @@ roles or policies.
 ## Validating locally
 
 ```bash
-pip install cfn-lint
+pip install cfn-lint==1.59.0      # the version CI uses
 cfn-lint VPC/VPC.yaml            # one template
 cfn-lint $(find . -name '*.yaml')  # everything
 ```
