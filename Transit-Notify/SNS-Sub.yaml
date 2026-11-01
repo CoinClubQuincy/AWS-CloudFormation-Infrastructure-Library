@@ -20,7 +20,8 @@ Parameters:
     Type: String
     Description: >
       Endpoint for the subscription. An address for email, a URL for https,
-      or a function ARN for lambda. Ignored when Protocol is sqs.
+      or a function ARN for lambda. Required unless Protocol is sqs (the
+      EndpointRequired rule rejects an empty value); ignored when it is sqs.
     Default: ''
 
   CreateQueueSubscription:
@@ -40,6 +41,14 @@ Parameters:
     Type: String
     Default: dev
     AllowedValues: [dev, stage, prod]
+
+Rules:
+  # SNS rejects a subscription with an empty endpoint, and the default protocol is email.
+  EndpointRequired:
+    RuleCondition: !Not [!Equals [!Ref Protocol, sqs]]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref Endpoint, '']]
+        AssertDescription: Endpoint is required unless Protocol is sqs.
 
 Conditions:
   WantsQueue: !Equals [!Ref CreateQueueSubscription, 'true']
