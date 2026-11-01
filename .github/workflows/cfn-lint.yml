@@ -20,19 +20,25 @@ jobs:
       - name: Install cfn-lint
         run: pip install --upgrade cfn-lint
 
-      # Errors fail the build. Warnings are reported but do not block, so style
-      # opinions never stop a correct template from shipping.
-      - name: Lint (errors block)
+      # cfn-lint's exit code is a bitmask: 2 = errors, 4 = warnings, 8 = informational.
+      # Only 0, 4, 8 and 12 (warnings and/or informational) pass. Errors (2), a linter
+      # failure (1) or any other code fail the build, so a crash can never read as green.
+      - name: Lint (errors and linter failures block)
         run: |
-          set -o pipefail
           failed=0
-          for f in $(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort); do
-            out=$(cfn-lint "$f" 2>&1) || true
-            if echo "$out" | grep -q '^E[0-9]'; then
-              echo "::error file=$f::cfn-lint errors"
-              echo "$out"
-              failed=1
-            fi
+          files=$(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort)
+          [ -n "$files" ] || { echo "::error::no templates found"; exit 1; }
+          for f in $files; do
+            rc=0
+            out=$(cfn-lint "$f" 2>&1) || rc=$?
+            case $rc in
+              0|4|8|12) ;;
+              *)
+                echo "::error file=$f::cfn-lint exited $rc"
+                echo "$out"
+                failed=1
+                ;;
+            esac
           done
           exit $failed
 

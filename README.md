@@ -4,7 +4,7 @@ A set of CloudFormation templates for common AWS infrastructure, written to be
 deployed as-is or copied into a larger stack.
 
 Every template in this repository passes `cfn-lint` with zero errors, and CI
-enforces that on every push. Templates are plain CloudFormation with no
+enforces that on every push (a linter crash fails the build too). Templates are plain CloudFormation with no
 transforms, no macros and no external dependencies.
 
 ## Quick start
@@ -64,7 +64,7 @@ console, or CloudTrail.
 | [`CodePipelines/Repos/CodeCommit.yaml`](CodePipelines/Repos/CodeCommit.yaml) | CodeCommit repository. | `ProjectTag`, `Description` |
 | [`CodePipelines/Repos/ECR.yaml`](CodePipelines/Repos/ECR.yaml) | ECR container registry with a lifecycle policy. | `ProjectTag` |
 | [`CodePipelines/codepipeline-CF.yaml`](CodePipelines/codepipeline-CF.yaml) | CodePipeline that deploys a CloudFormation stack through a change set, with a manual approval gate between test and production. | `PipelineName`, `S3Bucket`, `Email` |
-| [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit. | `AppName` |
+| [`CodePipelines/codepipeline-codecommit.yaml`](CodePipelines/codepipeline-codecommit.yaml) | CodePipeline sourced from CodeCommit, with its own CodeBuild project and scoped service roles. The repository needs a `buildspec.yml` at its root. | `AppName`, `BranchName`, `BuildImage` |
 | [`CodePipelines/codepipeline-docker-build-lambda.yaml`](CodePipelines/codepipeline-docker-build-lambda.yaml) | CodePipeline that builds a Docker image and deploys it as a container Lambda. | `ResourceName` |
 | [`CodePipelines/codepipeline-github.yaml`](CodePipelines/codepipeline-github.yaml) | CodePipeline sourced from GitHub. | `GitHubOwner`, `GitHubSecret`, `GitHubOAuthToken`, `VersionTag`, `ProjectTag` |
 
