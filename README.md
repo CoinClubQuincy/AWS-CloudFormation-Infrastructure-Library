@@ -16,15 +16,19 @@ cd AWS-CloudFormation-Infrastructure-Library
 # inspect what a template needs before deploying it
 aws cloudformation validate-template --template-body file://S3/Basic-S3-Bucket.yaml
 
+# ENVTag accepts Dev, Prod or Test (case-sensitive); ProjectTag has no default.
 aws cloudformation deploy \
   --template-file S3/Basic-S3-Bucket.yaml \
   --stack-name my-bucket \
-  --parameter-overrides ENVTag=dev \
-  --capabilities CAPABILITY_NAMED_IAM
+  --parameter-overrides ENVTag=Dev ProjectTag=demo
 ```
 
-`--capabilities CAPABILITY_NAMED_IAM` is required for any template that creates
-IAM roles or policies.
+The bucket is named `<stack-name>-<region>-xxxx-stackbucket`. S3 bucket names
+are global across all AWS accounts, so use a lowercase stack name that nobody
+else is likely to have used.
+
+Add `--capabilities CAPABILITY_NAMED_IAM` for any template that creates IAM
+roles or policies.
 
 ## Validating locally
 
