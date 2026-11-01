@@ -85,17 +85,10 @@ Parameters:
 
   DBUsername:
     Type: String
-    Description: Set Username
-
-  DBPass:
-    Type: String
     Description: >
-      Database master password. Prefer a Secrets Manager dynamic reference
-      over plain text. See the Secrets Manager section of the README.
-    NoEcho: true
-    MinLength: 8
-    MaxLength: 41
-    ConstraintDescription: 8 to 41 characters.
+      Master user name. There is no password parameter: RDS generates the
+      master password and stores it in Secrets Manager (see the DBSecretArn
+      output).
 
   MultiAZs:
     Type: String
@@ -267,8 +260,7 @@ Resources:
         Ref: DB
       MasterUsername:
         Ref: DBUsername
-      MasterUserPassword:
-        Ref: DBPass
+      ManageMasterUserPassword: true
       MultiAZ:
         Ref: MultiAZs
       PubliclyAccessible:
@@ -355,3 +347,11 @@ Resources:
         - Key: Project
           Value:
             Ref: ProjectTag
+
+Outputs:
+  DBSecretArn:
+    Description: >
+      ARN of the Secrets Manager secret in which RDS stores the generated master
+      user name and password. Read it with
+      aws secretsmanager get-secret-value --secret-id <this ARN>.
+    Value: !GetAtt RDS.MasterUserSecret.SecretArn

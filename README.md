@@ -40,11 +40,20 @@ cfn-lint $(find . -name '*.yaml')  # everything
 
 ## Secrets
 
-Templates that take a database password accept a Secrets Manager dynamic
-reference in place of plain text. Pass a value of the form
-`{{resolve:secretsmanager:SECRET_NAME:SecretString:password}}` rather than
-the password itself, and the value never appears in the stack parameters,
-console, or CloudTrail.
+The RDS templates (`Database/Basic-RDS.yaml` and
+`Database/Basic-RDS-w-Server.yaml`) take no password parameter. They set
+`ManageMasterUserPassword: true`, so RDS generates the master password, stores
+it in AWS Secrets Manager and, by default, rotates it every seven days. The
+password never passes through the stack parameters. The `DBSecretArn` stack
+output is the ARN of that secret:
+
+```bash
+aws secretsmanager get-secret-value --secret-id <DBSecretArn>
+```
+
+The identity that deploys the stack needs `secretsmanager:CreateSecret`,
+`secretsmanager:TagResource` and `kms:DescribeKey`. RDS deletes the secret
+when it deletes the DB instance.
 
 ## Templates
 
@@ -77,8 +86,8 @@ console, or CloudTrail.
 | Template | Creates | Required parameters |
 |---|---|---|
 | [`Database/Basic-DynamoDB.yaml`](Database/Basic-DynamoDB.yaml) | DynamoDB table with a configurable partition and sort key. | `PrimaryKey`, `SortKey`, `ProjectTag`, `DyanmoMap` |
-| [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `DBPass` (+2) |
-| [`Database/Basic-RDS.yaml`](Database/Basic-RDS.yaml) | RDS instance inside a VPC with a parameterised engine and size. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `DBPass` (+1) |
+| [`Database/Basic-RDS-w-Server.yaml`](Database/Basic-RDS-w-Server.yaml) | RDS instance plus an EC2 application server in the same VPC. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag`, `KeyName` |
+| [`Database/Basic-RDS.yaml`](Database/Basic-RDS.yaml) | RDS instance inside a VPC with a parameterised engine and size. | `PrivateIP`, `VPC`, `Subnet1`, `Subnet2`, `DBUsername`, `ProjectTag` |
 | [`Database/Querys/AthenaLong.yaml`](Database/Querys/AthenaLong.yaml) | Athena named query, long form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+16) |
 | [`Database/Querys/AthenaShort.yaml`](Database/Querys/AthenaShort.yaml) | Athena named query, short form. | `Database`, `Description`, `Query`, `Query2`, `Query3`, `Query4` (+6) |
 | [`Database/Querys/OpenSearch.yaml`](Database/Querys/OpenSearch.yaml) | Amazon OpenSearch Service domain. Replaces the former Elasticsearch template: the service was renamed to OpenSearch Service and AWS::Elasticsearch::Domain is superseded by AWS::OpenSearchService::Domain. Encrypted at rest and in transit, never open to the public internet. | `DomainName`, `SubnetIds`, `SecurityGroupIds` |
