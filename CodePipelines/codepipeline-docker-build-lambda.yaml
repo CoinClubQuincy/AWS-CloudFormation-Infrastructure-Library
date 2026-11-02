@@ -1,11 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  CodeCommit and ECR repositories, a privileged CodeBuild project that runs the
-  repository's buildspec.yml with REPOSITORY_URI set to the ECR repository, and
-  a CodePipeline that runs CodeCommit (master branch), then CodeBuild, then
-  CodeDeploy. The deployment group uses CodeDeployDefault.OneAtATime, an
-  EC2/on-premises configuration, and has no targets. No Lambda function is
-  created.
+  CodeCommit and ECR repositories and a CodePipeline that runs CodeCommit
+  (master branch), then CodeDeploy. There is no build stage: images are pushed
+  to the ECR repository outside the pipeline. The deployment group uses
+  CodeDeployDefault.OneAtATime, an EC2/on-premises configuration, and has no
+  targets. No Lambda function is created.
 Parameters:
   ResourceName:
     Type: String
@@ -45,73 +44,6 @@ Resources:
     Type: AWS::ECR::Repository
     Properties:
       RepositoryName: !Sub ${ResourceName}-ecr
-
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${ResourceName}-MyCodeBuild
-      # The pipeline hands the CodeCommit revision to this project as its input artifact.
-      Source:
-        Type: CODEPIPELINE
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
-        PrivilegedMode: true
-        EnvironmentVariables:
-          - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepo}
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-
-  CodeBuildServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: !Sub ${ResourceName}-CodeBuildPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource:
-                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ResourceName}-MyCodeBuild'
-                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ResourceName}-MyCodeBuild:*'
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:PutObject
-                Resource: !Sub '${PipelineArtifactBucket.Arn}/*'
-              # GetAuthorizationToken has no resource-level scope.
-              - Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:GetRepositoryPolicy
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                  - ecr:DescribeImages
-                  - ecr:BatchGetImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                  - ecr:PutImage
-                Resource: !GetAtt ECRRepo.Arn
 
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
@@ -167,19 +99,6 @@ Resources:
                 RepositoryName: !GetAtt CodeCommitRepo.Name
                 BranchName: master
               RunOrder: 1
-        - Name: Build
-          Actions:
-            - Name: Build
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: 1
-              InputArtifacts:
-                - Name: SourceOutput
-              Configuration:
-                ProjectName: !Ref CodeBuildProject
-              RunOrder: 1
         - Name: Deploy
           Actions:
             - Name: Deploy
@@ -232,11 +151,6 @@ Resources:
                   - codecommit:GetUploadArchiveStatus
                   - codecommit:UploadArchive
                 Resource: !GetAtt CodeCommitRepo.Arn
-              - Effect: Allow
-                Action:
-                  - codebuild:BatchGetBuilds
-                  - codebuild:StartBuild
-                Resource: !GetAtt CodeBuildProject.Arn
               - Effect: Allow
                 Action:
                   - codedeploy:CreateDeployment

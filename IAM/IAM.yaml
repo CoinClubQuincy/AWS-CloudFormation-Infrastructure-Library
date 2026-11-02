@@ -20,7 +20,6 @@ Parameters:
       - ec2.amazonaws.com
       - lambda.amazonaws.com
       - ecs-tasks.amazonaws.com
-      - codebuild.amazonaws.com
       - codepipeline.amazonaws.com
 
   ScopedBucketName:
