@@ -160,7 +160,7 @@ when it deletes the DB instance.
 | Template | Creates | Required parameters |
 |---|---|---|
 | [`Transit-Notify/Kinesis.yaml`](Transit-Notify/Kinesis.yaml) | Kinesis data stream. | `ProjectTag` |
-| [`Transit-Notify/SNS-Sub.yaml`](Transit-Notify/SNS-Sub.yaml) | SNS topic subscriptions. Creates an email or HTTPS subscription against an existing topic, plus an optional SQS subscription complete with the queue policy SNS needs in order to deliver. Encrypted queue by default. | `TopicArn`, `Endpoint` (unless `Protocol` is `sqs`) |
+| [`Transit-Notify/SNS-Sub.yaml`](Transit-Notify/SNS-Sub.yaml) | SNS topic subscriptions. Creates an email or HTTPS subscription against an existing topic, plus an optional SQS subscription complete with the queue policy SNS needs in order to deliver. Encrypted queue by default. | `TopicArn`, `Endpoint` (unless `Protocol` is `sqs`, which also needs `CreateQueueSubscription=true`) |
 | [`Transit-Notify/SNS-Topics.yaml`](Transit-Notify/SNS-Topics.yaml) | SNS topic. | `ProjectTag` |
 | [`Transit-Notify/SQS.yaml`](Transit-Notify/SQS.yaml) | SQS queue. | `ProjectTag` |
 

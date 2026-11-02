@@ -21,7 +21,9 @@ Parameters:
     Description: >
       Endpoint for the subscription. An address for email, a URL for https,
       or a function ARN for lambda. Required unless Protocol is sqs (the
-      EndpointRequired rule rejects an empty value); ignored when it is sqs.
+      EndpointRequired rule rejects an empty value). Protocol sqs subscribes
+      the queue this template creates, so it needs CreateQueueSubscription
+      'true' and ignores Endpoint; it cannot subscribe an existing queue.
     Default: ''
 
   CreateQueueSubscription:
@@ -49,6 +51,15 @@ Rules:
     Assertions:
       - Assert: !Not [!Equals [!Ref Endpoint, '']]
         AssertDescription: Endpoint is required unless Protocol is sqs.
+  # Protocol sqs creates no direct subscription; only the template's own queue is subscribed.
+  # Without this rule, sqs plus CreateQueueSubscription 'false' would create nothing.
+  SqsProtocolNeedsQueue:
+    RuleCondition: !Equals [!Ref Protocol, sqs]
+    Assertions:
+      - Assert: !Equals [!Ref CreateQueueSubscription, 'true']
+        AssertDescription: >-
+          Protocol sqs subscribes the queue this template creates, so
+          CreateQueueSubscription must be 'true'. This template cannot subscribe an existing queue.
 
 Conditions:
   WantsQueue: !Equals [!Ref CreateQueueSubscription, 'true']
