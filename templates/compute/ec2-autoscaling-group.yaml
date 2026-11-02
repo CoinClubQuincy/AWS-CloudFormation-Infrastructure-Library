@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Auto Scaling group from a hardened launch template, with CPU target tracking.
+
+Metadata:
+  Library:
+    Domain: compute
+    Summary: Auto Scaling group from a launch template with IMDSv2, encrypted volumes, Session Manager access, CPU target tracking and optional target group attachment.
+    Cost: Bills for running instances and their volumes. MinSize 1 keeps at least one running.
+    Prerequisites:
+      - Subnets with a route to the SSM service if you want Session Manager access.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Fleet}
+        Parameters: [InstanceType, ImageParameter, RootVolumeGiB, MinSize, MaxSize, TargetCpuPercent]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId, InstancePort]
+      - Label: {default: Load balancing}
+        Parameters: [TargetGroupArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    Description: Instance type. Must match the architecture of the image.
+  ImageParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: SSM public parameter holding the AMI ID.
+  RootVolumeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 8
+    Description: Root volume size in GiB.
+  MinSize:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    Description: Minimum instances.
+  MaxSize:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    Description: Maximum instances.
+  TargetCpuPercent:
+    Type: Number
+    Default: 60
+    MinValue: 10
+    MaxValue: 90
+    Description: Average CPU the group scales to hold.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the instances.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for the instances. Use private subnets.
+  SourceSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional security group allowed to reach InstancePort, such as the load balancer's.
+  InstancePort:
+    Type: Number
+    Default: 8080
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port opened to SourceSecurityGroupId.
+  TargetGroupArn:
+    Type: String
+    Default: ''
+    Description: Optional load balancer target group. When set, the group uses ELB health checks.
+
+Conditions:
+  HasSource: !Not [!Equals [!Ref SourceSecurityGroupId, '']]
+  HasTargetGroup: !Not [!Equals [!Ref TargetGroupArn, '']]
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Role]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Auto Scaling group instances.
+      VpcId: !Ref VpcId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SourceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSource
+    Properties:
+      GroupId: !Ref SecurityGroup
+      Description: Allow from the configured security group
+      IpProtocol: tcp
+      FromPort: !Ref InstancePort
+      ToPort: !Ref InstancePort
+      SourceSecurityGroupId: !Ref SourceSecurityGroupId
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        ImageId: !Ref ImageParameter
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        SecurityGroupIds: [!Ref SecurityGroup]
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: !Ref RootVolumeGiB
+              Encrypted: true
+              DeleteOnTermination: true
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+              - {Key: Project, Value: !Ref ProjectName}
+              - {Key: Environment, Value: !Ref Environment}
+              - {Key: ManagedBy, Value: CloudFormation}
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: !Ref MinSize
+        MaxBatchSize: 1
+    Properties:
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      VPCZoneIdentifier: !Ref SubnetIds
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs: !If [HasTargetGroup, [!Ref TargetGroupArn], !Ref AWS::NoValue]
+      HealthCheckType: !If [HasTargetGroup, ELB, EC2]
+      HealthCheckGracePeriod: 120
+      Tags:
+        - {Key: Name, Value: !Ref AWS::StackName, PropagateAtLaunch: true}
+        - {Key: Project, Value: !Ref ProjectName, PropagateAtLaunch: true}
+        - {Key: Environment, Value: !Ref Environment, PropagateAtLaunch: true}
+        - {Key: ManagedBy, Value: CloudFormation, PropagateAtLaunch: true}
+
+  CpuScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: !Ref TargetCpuPercent
+
+Outputs:
+  AutoScalingGroupName:
+    Description: Auto Scaling group name.
+    Value: !Ref AutoScalingGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-AutoScalingGroupName'
+  SecurityGroupId:
+    Description: Instance security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+  RoleArn:
+    Description: Instance role ARN. Attach further policies here.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

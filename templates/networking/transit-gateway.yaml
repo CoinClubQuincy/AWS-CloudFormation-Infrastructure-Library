@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Transit gateway with one VPC attachment.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: Transit gateway plus one VPC attachment, with default route table association and propagation.
+    Cost: Each attachment bills hourly, and data processed bills per GB.
+    Prerequisites:
+      - An existing VPC with one subnet per Availability Zone for the attachment.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Gateway}
+        Parameters: [AmazonSideAsn]
+      - Label: {default: Attachment}
+        Parameters: [VpcId, SubnetIds]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  AmazonSideAsn:
+    Type: Number
+    Default: 64512
+    MinValue: 64512
+    MaxValue: 65534
+    Description: Private ASN for the Amazon side of BGP sessions.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to attach.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: One subnet per Availability Zone for the attachment.
+
+Resources:
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: !Sub '${ProjectName} ${Environment} transit gateway'
+      AmazonSideAsn: !Ref AmazonSideAsn
+      AutoAcceptSharedAttachments: disable
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      DnsSupport: enable
+      VpnEcmpSupport: enable
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  VpcAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VpcId
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  TransitGatewayId:
+    Description: Transit gateway ID.
+    Value: !Ref TransitGateway
+    Export:
+      Name: !Sub '${AWS::StackName}-TransitGatewayId'
+  VpcAttachmentId:
+    Description: VPC attachment ID. Route tables still need routes pointing at the gateway.
+    Value: !Ref VpcAttachment
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcAttachmentId'

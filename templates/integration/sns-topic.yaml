@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Encrypted SNS topic with a TLS-only policy and an optional email subscription.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: Encrypted SNS topic with a TLS-only policy and optional email subscription.
+    Cost: No idle charge. Bills per million publishes and per delivery.
+    Prerequisites:
+      - AWS services such as CloudWatch and EventBridge cannot publish to a topic encrypted with alias/aws/sns. Use a customer-managed key for those, or observability/alarm-topic.yaml.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Topic}
+        Parameters: [KmsKeyId, SubscriptionEmail]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  KmsKeyId:
+    Type: String
+    Default: alias/aws/sns
+    Description: KMS key for the topic.
+  SubscriptionEmail:
+    Type: String
+    Default: ''
+    Description: Optional email address to subscribe. The recipient must confirm.
+
+Conditions:
+  HasEmail: !Not [!Equals [!Ref SubscriptionEmail, '']]
+
+Resources:
+  Topic:
+    Type: AWS::SNS::Topic
+    Properties:
+      KmsMasterKeyId: !Ref KmsKeyId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref Topic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
+            Resource: !Ref Topic
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref Topic
+      Protocol: email
+      Endpoint: !Ref SubscriptionEmail
+
+Outputs:
+  TopicArn:
+    Description: Topic ARN.
+    Value: !Ref Topic
+    Export:
+      Name: !Sub '${AWS::StackName}-TopicArn'
+  TopicName:
+    Description: Topic name.
+    Value: !GetAtt Topic.TopicName
+    Export:
+      Name: !Sub '${AWS::StackName}-TopicName'

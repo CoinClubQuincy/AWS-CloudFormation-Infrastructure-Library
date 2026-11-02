@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Blueprint: HTTP API, Lambda function and DynamoDB table with scoped access."
+
+Metadata:
+  Library:
+    Domain: blueprints
+    Summary: HTTP API in front of an arm64 Lambda function, with a DynamoDB table the function can read and write through a policy scoped to that table. The table name reaches the code as APP_CONFIG.
+    Cost: No idle compute charge. Bills per API request, Lambda invocation and DynamoDB request, plus logs and table storage.
+    Prerequisites:
+      - A code ZIP in an S3 bucket in this region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Code}
+        Parameters: [CodeS3Bucket, CodeS3Key, Handler, Runtime]
+      - Label: {default: Auth}
+        Parameters: [JwtIssuer, JwtAudience]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  CodeS3Bucket:
+    Type: String
+    Description: Bucket holding the deployment ZIP.
+  CodeS3Key:
+    Type: String
+    Description: Key of the deployment ZIP.
+  Handler:
+    Type: String
+    Default: app.handler
+    Description: Function entry point.
+  Runtime:
+    Type: String
+    Default: python3.13
+    Description: Lambda runtime identifier.
+  JwtIssuer:
+    Type: String
+    Default: ''
+    Description: Optional JWT issuer URL. Without it the API accepts unauthenticated requests.
+  JwtAudience:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Audiences accepted with JwtIssuer.
+
+Resources:
+  Table:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/database/dynamodb-table.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  TableAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Read and write access to this blueprint's table.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:DeleteItem
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:UpdateItem
+            Resource:
+              - !GetAtt Table.Outputs.TableArn
+              - !Sub '${Table.Outputs.TableArn}/index/*'
+
+  Function:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/compute/lambda-function.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        CodeS3Bucket: !Ref CodeS3Bucket
+        CodeS3Key: !Ref CodeS3Key
+        Handler: !Ref Handler
+        Runtime: !Ref Runtime
+        ExtraPolicyArn: !Ref TableAccessPolicy
+        ConfigValue: !GetAtt Table.Outputs.TableName
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Api:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/integration/api-gateway-http-lambda.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        FunctionArn: !GetAtt Function.Outputs.FunctionArn
+        JwtIssuer: !Ref JwtIssuer
+        JwtAudience: !Join [',', !Ref JwtAudience]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  ApiEndpoint:
+    Description: API URL.
+    Value: !GetAtt Api.Outputs.ApiEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+  FunctionName:
+    Description: Function name.
+    Value: !GetAtt Function.Outputs.FunctionName
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionName'
+  TableName:
+    Description: Table name.
+    Value: !GetAtt Table.Outputs.TableName
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'

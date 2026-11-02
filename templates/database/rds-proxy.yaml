@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS Proxy for an existing instance or Aurora cluster, with TLS required.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: RDS Proxy in front of an existing instance or Aurora cluster, requiring TLS, with a role limited to one secret.
+    Cost: Bills hourly per vCPU or ACU of the underlying database, whether or not it receives traffic.
+    Prerequisites:
+      - An RDS instance or Aurora cluster, and a Secrets Manager secret with its credentials.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Target}
+        Parameters: [EngineFamily, DbInstanceIdentifier, DbClusterIdentifier, SecretArn, SecretKmsKeyArn]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, DatabasePort, SourceSecurityGroupId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  EngineFamily:
+    Type: String
+    Default: POSTGRESQL
+    AllowedValues: [POSTGRESQL, MYSQL]
+    Description: Engine family of the target database.
+  DbInstanceIdentifier:
+    Type: String
+    Default: ''
+    Description: Target RDS instance. Set this or DbClusterIdentifier.
+  DbClusterIdentifier:
+    Type: String
+    Default: ''
+    Description: Target Aurora cluster. Set this or DbInstanceIdentifier.
+  SecretArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:secretsmanager:.+$'
+    Description: Secret holding the database credentials.
+  SecretKmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Customer-managed KMS key that encrypts the secret, if it uses one.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the proxy.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets in at least two Availability Zones.
+  DatabasePort:
+    Type: Number
+    Default: 5432
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port clients use, normally 5432 or 3306. Must match the engine family.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to connect to the proxy.
+
+Conditions:
+  UsesCluster: !Not [!Equals [!Ref DbClusterIdentifier, '']]
+  HasSecretKey: !Not [!Equals [!Ref SecretKmsKeyArn, '']]
+
+Rules:
+  OneTarget:
+    Assertions:
+      - Assert: !Not [!And [!Equals [!Ref DbClusterIdentifier, ''], !Equals [!Ref DbInstanceIdentifier, '']]]
+        AssertDescription: Set DbClusterIdentifier or DbInstanceIdentifier.
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: rds.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadDatabaseSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref SecretArn
+              - !If
+                - HasSecretKey
+                - Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref SecretKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub 'secretsmanager.${AWS::Region}.amazonaws.com'
+                - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Proxy access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: !Ref DatabasePort, ToPort: !Ref DatabasePort, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Proxy:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      DBProxyName: !Ref AWS::StackName
+      EngineFamily: !Ref EngineFamily
+      RequireTLS: true
+      RoleArn: !GetAtt Role.Arn
+      VpcSubnetIds: !Ref SubnetIds
+      VpcSecurityGroupIds: [!Ref SecurityGroup]
+      Auth:
+        - AuthScheme: SECRETS
+          IAMAuth: DISABLED
+          SecretArn: !Ref SecretArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties:
+      DBProxyName: !Ref Proxy
+      TargetGroupName: default
+      DBClusterIdentifiers: !If [UsesCluster, [!Ref DbClusterIdentifier], !Ref AWS::NoValue]
+      DBInstanceIdentifiers: !If [UsesCluster, !Ref AWS::NoValue, [!Ref DbInstanceIdentifier]]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  ProxyEndpoint:
+    Description: Proxy hostname. The database must allow this proxy's security group.
+    Value: !GetAtt Proxy.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ProxyEndpoint'
+  SecurityGroupId:
+    Description: Proxy security group. Allow it as a source on the database.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

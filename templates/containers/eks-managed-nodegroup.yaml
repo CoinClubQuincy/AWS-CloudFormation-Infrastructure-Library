@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EKS managed node group with on-demand or Spot capacity.
+
+Metadata:
+  Library:
+    Domain: containers
+    Summary: EKS managed node group on arm64 Amazon Linux 2023, on-demand or Spot, with its node role.
+    Cost: Bills for the instances and volumes while nodes run. Spot is cheaper but nodes can be interrupted.
+    Prerequisites:
+      - A cluster from containers/eks-cluster.yaml, and private subnets with a route to ECR and the EKS API.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Cluster}
+        Parameters: [ClusterName, SubnetIds]
+      - Label: {default: Capacity}
+        Parameters: [CapacityType, InstanceTypes, AmiType, DiskSizeGiB]
+      - Label: {default: Scaling}
+        Parameters: [MinSize, DesiredSize, MaxSize]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ClusterName:
+    Type: String
+    Description: Name of the EKS cluster.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for the nodes.
+  CapacityType:
+    Type: String
+    Default: ON_DEMAND
+    AllowedValues: [ON_DEMAND, SPOT]
+    Description: SPOT is cheaper but nodes can be interrupted.
+  InstanceTypes:
+    Type: CommaDelimitedList
+    Default: t4g.medium
+    Description: Instance types. Must match AmiType's architecture, and listing several improves Spot availability.
+  AmiType:
+    Type: String
+    Default: AL2023_ARM_64_STANDARD
+    AllowedValues: [AL2023_ARM_64_STANDARD, AL2023_x86_64_STANDARD]
+    Description: Node image family.
+  DiskSizeGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    Description: Node disk size in GiB.
+  MinSize:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    Description: Minimum nodes.
+  DesiredSize:
+    Type: Number
+    Default: 2
+    MinValue: 0
+    Description: Initial nodes.
+  MaxSize:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    Description: Maximum nodes.
+
+Resources:
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonEKSWorkerNodePolicy'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonEKS_CNI_Policy'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NodeGroup:
+    Type: AWS::EKS::Nodegroup
+    Properties:
+      ClusterName: !Ref ClusterName
+      NodeRole: !GetAtt NodeRole.Arn
+      Subnets: !Ref SubnetIds
+      CapacityType: !Ref CapacityType
+      InstanceTypes: !Ref InstanceTypes
+      AmiType: !Ref AmiType
+      DiskSize: !Ref DiskSizeGiB
+      ScalingConfig:
+        MinSize: !Ref MinSize
+        DesiredSize: !Ref DesiredSize
+        MaxSize: !Ref MaxSize
+      UpdateConfig:
+        MaxUnavailable: 1
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+Outputs:
+  NodeGroupName:
+    Description: Node group name.
+    Value: !GetAtt NodeGroup.NodegroupName
+    Export:
+      Name: !Sub '${AWS::StackName}-NodeGroupName'
+  NodeRoleArn:
+    Description: Node role ARN.
+    Value: !GetAtt NodeRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-NodeRoleArn'

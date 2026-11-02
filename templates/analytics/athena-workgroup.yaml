@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Athena workgroup enforcing encrypted results and a per-query scan limit.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: Athena workgroup that enforces an encrypted results location and a per-query scan limit.
+    Cost: No idle charge. Queries bill per TB scanned, and the scan limit caps each query.
+    Prerequisites:
+      - An S3 bucket for query results.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Workgroup}
+        Parameters: [ResultsBucketName, ResultsPrefix, MaxBytesScannedPerQuery]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ResultsBucketName:
+    Type: String
+    Description: Bucket that stores query results.
+  ResultsPrefix:
+    Type: String
+    Default: athena-results/
+    Description: Key prefix for results, ending in a slash.
+  MaxBytesScannedPerQuery:
+    Type: Number
+    Default: 10737418240
+    MinValue: 10000000
+    Description: Queries scanning more than this are cancelled. The default is 10 GiB.
+
+Resources:
+  WorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Ref AWS::StackName
+      Description: !Sub '${ProjectName} ${Environment} workgroup'
+      State: ENABLED
+      RecursiveDeleteOption: false
+      WorkGroupConfiguration:
+        EnforceWorkGroupConfiguration: true
+        PublishCloudWatchMetricsEnabled: true
+        BytesScannedCutoffPerQuery: !Ref MaxBytesScannedPerQuery
+        ResultConfiguration:
+          OutputLocation: !Sub 's3://${ResultsBucketName}/${ResultsPrefix}'
+          EncryptionConfiguration:
+            EncryptionOption: SSE_S3
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  WorkGroupName:
+    Description: Workgroup name.
+    Value: !Ref WorkGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkGroupName'

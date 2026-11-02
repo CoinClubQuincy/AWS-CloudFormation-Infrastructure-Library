@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Customer-managed KMS key with rotation, an alias and optional service access.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: Customer-managed KMS key with automatic rotation, an alias, account administration and optional use by named AWS service principals.
+    Cost: Bills monthly per key plus per request. Rotated key material can add a small monthly charge.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Key}
+        Parameters: [AliasSuffix, ServicePrincipals, PendingDeletionDays]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  AliasSuffix:
+    Type: String
+    Default: main
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+    Description: The alias becomes alias/ProjectName-Environment-AliasSuffix.
+  ServicePrincipals:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional service principals allowed to use the key, such as logs.amazonaws.com.
+  PendingDeletionDays:
+    Type: Number
+    Default: 30
+    MinValue: 7
+    MaxValue: 30
+    Description: Waiting period before a scheduled deletion takes effect.
+
+Conditions:
+  HasServices: !Not [!Equals [!Join ['', !Ref ServicePrincipals], '']]
+
+Resources:
+  Key:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub '${ProjectName} ${Environment} ${AliasSuffix}'
+      EnableKeyRotation: true
+      PendingWindowInDays: !Ref PendingDeletionDays
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'}
+            Action: kms:*
+            Resource: '*'
+          - !If
+            - HasServices
+            - Sid: ServiceUse
+              Effect: Allow
+              Principal: {Service: !Ref ServicePrincipals}
+              Action:
+                - kms:Encrypt
+                - kms:Decrypt
+                - kms:ReEncrypt*
+                - kms:GenerateDataKey*
+                - kms:DescribeKey
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  aws:SourceAccount: !Ref AWS::AccountId
+            - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Alias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${ProjectName}-${Environment}-${AliasSuffix}'
+      TargetKeyId: !Ref Key
+
+Outputs:
+  KeyId:
+    Description: Key ID.
+    Value: !Ref Key
+    Export:
+      Name: !Sub '${AWS::StackName}-KeyId'
+  KeyArn:
+    Description: Key ARN.
+    Value: !GetAtt Key.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-KeyArn'
+  AliasName:
+    Description: Key alias.
+    Value: !Ref Alias
+    Export:
+      Name: !Sub '${AWS::StackName}-AliasName'

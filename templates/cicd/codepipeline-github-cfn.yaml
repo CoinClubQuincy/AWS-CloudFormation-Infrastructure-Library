@@ -1,0 +1,322 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline from GitHub through CodeBuild to a CloudFormation change set, with optional approval.
+
+Metadata:
+  Library:
+    Domain: cicd
+    Summary: CodePipeline V2 that takes GitHub source through CodeConnections, runs CodeBuild, creates a CloudFormation change set, optionally waits for approval, then executes it. Roles are scoped to this pipeline.
+    Cost: V2 pipelines bill per action-execution minute. CodeBuild bills per build minute, and artifacts bill as S3 storage.
+    Prerequisites:
+      - A CodeConnections connection in AVAILABLE state. A managed policy granting CloudFormation what the target stack creates. The build must output the template to BuildOutput.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Source}
+        Parameters: [ConnectionArn, RepositoryId, BranchName]
+      - Label: {default: Build}
+        Parameters: [BuildspecPath, BuildImage]
+      - Label: {default: Deploy}
+        Parameters: [TargetStackName, TemplateFileName, DeployPolicyArn, RequireApproval]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ConnectionArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:(codeconnections|codestar-connections):.+$'
+    Description: CodeConnections connection to GitHub.
+  RepositoryId:
+    Type: String
+    AllowedPattern: '^[^/]+/[^/]+$'
+    Description: Repository as owner/name.
+  BranchName:
+    Type: String
+    Default: main
+    Description: Branch that triggers the pipeline.
+  BuildspecPath:
+    Type: String
+    Default: buildspec.yml
+    Description: Path to the buildspec inside the repository.
+  BuildImage:
+    Type: String
+    Default: aws/codebuild/amazonlinux-aarch64-standard:3.0
+    Description: Build image. It must be an arm64 image.
+  TargetStackName:
+    Type: String
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9-]*$'
+    Description: Stack the pipeline deploys.
+  TemplateFileName:
+    Type: String
+    Default: packaged.yaml
+    Description: Template file in the build output.
+  DeployPolicyArn:
+    Type: String
+    AllowedPattern: '^arn:.+$'
+    Description: Managed policy for the CloudFormation role. Grant what the target stack creates and no more.
+  RequireApproval:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Wait for manual approval between change set creation and execution.
+
+Conditions:
+  Approval: !Equals [!Ref RequireApproval, 'true']
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt ArtifactBucket.Arn
+              - !Sub '${ArtifactBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codebuild.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BuildBasics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt BuildLogGroup.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub '${ArtifactBucket.Arn}/*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      ServiceRole: !GetAtt BuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Ref BuildspecPath
+      Environment:
+        Type: ARM_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Ref BuildImage
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudformation.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref DeployPolicyArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codepipeline.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RunPipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub '${ArtifactBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - codeconnections:UseConnection
+                  - codestar-connections:UseConnection
+                Resource: !Ref ConnectionArn
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !GetAtt BuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DescribeStacks
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${TargetStackName}/*'
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt DeployRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      PipelineType: V2
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId: {Category: Source, Owner: AWS, Provider: CodeStarSourceConnection, Version: '1'}
+              Configuration:
+                ConnectionArn: !Ref ConnectionArn
+                FullRepositoryId: !Ref RepositoryId
+                BranchName: !Ref BranchName
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: SourceOutput
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId: {Category: Build, Owner: AWS, Provider: CodeBuild, Version: '1'}
+              Configuration:
+                ProjectName: !Ref BuildProject
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+        - Name: Deploy
+          Actions:
+            - Name: CreateChangeSet
+              RunOrder: 1
+              ActionTypeId: {Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: '1'}
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                StackName: !Ref TargetStackName
+                ChangeSetName: pipeline
+                TemplatePath: !Sub 'BuildOutput::${TemplateFileName}'
+                Capabilities: CAPABILITY_IAM
+                RoleArn: !GetAtt DeployRole.Arn
+              InputArtifacts:
+                - Name: BuildOutput
+            - !If
+              - Approval
+              - Name: Approve
+                RunOrder: 2
+                ActionTypeId: {Category: Approval, Owner: AWS, Provider: Manual, Version: '1'}
+              - !Ref AWS::NoValue
+            - Name: ExecuteChangeSet
+              RunOrder: 3
+              ActionTypeId: {Category: Deploy, Owner: AWS, Provider: CloudFormation, Version: '1'}
+              Configuration:
+                ActionMode: CHANGE_SET_EXECUTE
+                StackName: !Ref TargetStackName
+                ChangeSetName: pipeline
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  PipelineName:
+    Description: Pipeline name.
+    Value: !Ref Pipeline
+    Export:
+      Name: !Sub '${AWS::StackName}-PipelineName'
+  ArtifactBucketName:
+    Description: Artifact bucket name.
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ArtifactBucketName'

@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Static site on a private S3 bucket behind CloudFront with Origin Access Control.
+
+Metadata:
+  Library:
+    Domain: edge
+    Summary: Static site on a private encrypted S3 bucket served by CloudFront through Origin Access Control, with security headers, HTTPS redirect, and optional custom domain, WAF and single-page-app routing.
+    Cost: No idle charge beyond S3 storage. CloudFront bills by requests and data transfer, and PriceClass_100 is the cheapest edge footprint.
+    Prerequisites:
+      - For a custom domain, an ACM certificate in us-east-1. For WAF, a CLOUDFRONT-scope web ACL.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Site}
+        Parameters: [DefaultRootObject, SinglePageApp, PriceClass]
+      - Label: {default: Custom domain}
+        Parameters: [DomainNames, CertificateArn]
+      - Label: {default: Security}
+        Parameters: [WebAclArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DefaultRootObject:
+    Type: String
+    Default: index.html
+    Description: Object returned for the root URL.
+  SinglePageApp:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Serve the root object with HTTP 200 for missing paths, for client-side routing.
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    Description: Edge locations to use. PriceClass_100 is cheapest.
+  DomainNames:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional custom domains for the distribution.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM certificate ARN in us-east-1, required with DomainNames.
+  WebAclArn:
+    Type: String
+    Default: ''
+    Description: Optional CLOUDFRONT-scope WAF web ACL ARN.
+
+Conditions:
+  HasDomains: !Not [!Equals [!Join ['', !Ref DomainNames], '']]
+  HasWaf: !Not [!Equals [!Ref WebAclArn, '']]
+  IsSpa: !Equals [!Ref SinglePageApp, 'true']
+
+Rules:
+  DomainsNeedCertificate:
+    RuleCondition: !Not [!Equals [!Join ['', !Ref DomainNames], '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CertificateArn, '']]
+        AssertDescription: CertificateArn is required when DomainNames is set.
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${ProjectName} ${Environment} static site'
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        DefaultRootObject: !Ref DefaultRootObject
+        Aliases: !If [HasDomains, !Ref DomainNames, !Ref AWS::NoValue]
+        WebACLId: !If [HasWaf, !Ref WebAclArn, !Ref AWS::NoValue]
+        ViewerCertificate: !If
+          - HasDomains
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: site-bucket
+            DomainName: !GetAtt Bucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: site-bucket
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          # AWS managed policies: CachingOptimized and SecurityHeadersPolicy.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+        CustomErrorResponses: !If
+          - IsSpa
+          - - {ErrorCode: 403, ResponseCode: 200, ResponsePagePath: !Sub '/${DefaultRootObject}', ErrorCachingMinTTL: 10}
+            - {ErrorCode: 404, ResponseCode: 200, ResponsePagePath: !Sub '/${DefaultRootObject}', ErrorCachingMinTTL: 10}
+          - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub '${Bucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  BucketName:
+    Description: Bucket to upload site files to.
+    Value: !Ref Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  DistributionId:
+    Description: CloudFront distribution ID, used for invalidations.
+    Value: !Ref Distribution
+    Export:
+      Name: !Sub '${AWS::StackName}-DistributionId'
+  DistributionDomainName:
+    Description: CloudFront domain name.
+    Value: !GetAtt Distribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-DistributionDomainName'

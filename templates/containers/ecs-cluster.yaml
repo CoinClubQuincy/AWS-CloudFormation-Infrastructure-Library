@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS cluster with Fargate and Fargate Spot capacity providers.
+
+Metadata:
+  Library:
+    Domain: containers
+    Summary: ECS cluster with Fargate and Fargate Spot capacity providers and optional Container Insights.
+    Cost: The cluster has no charge. Tasks bill for vCPU and memory, and Container Insights bills as custom metrics and logs.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Cluster}
+        Parameters: [ContainerInsights, DefaultCapacityProvider]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ContainerInsights:
+    Type: String
+    Default: disabled
+    AllowedValues: [disabled, enabled, enhanced]
+    Description: Container Insights level.
+  DefaultCapacityProvider:
+    Type: String
+    Default: FARGATE
+    AllowedValues: [FARGATE, FARGATE_SPOT]
+    Description: Used when a service does not choose. FARGATE_SPOT is cheaper but tasks can be interrupted.
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterSettings:
+        - {Name: containerInsights, Value: !Ref ContainerInsights}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  CapacityProviders:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      Cluster: !Ref Cluster
+      CapacityProviders: [FARGATE, FARGATE_SPOT]
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: !Ref DefaultCapacityProvider
+          Weight: 1
+
+Outputs:
+  ClusterName:
+    Description: Cluster name.
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+  ClusterArn:
+    Description: Cluster ARN.
+    Value: !GetAtt Cluster.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterArn'

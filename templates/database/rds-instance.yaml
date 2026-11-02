@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS PostgreSQL or MySQL instance with a managed password, encryption and no public access.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: RDS PostgreSQL or MySQL instance on gp3 with the correct port for the engine, a Secrets Manager master password, encryption, backups and no public access.
+    Cost: Bills hourly for the instance plus monthly for storage and backups, even when idle. Multi-AZ doubles the instance cost.
+    Prerequisites:
+      - Private or isolated subnets in at least two Availability Zones.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Engine}
+        Parameters: [Engine, EngineVersion, InstanceClass, MasterUsername, DatabaseName]
+      - Label: {default: Storage}
+        Parameters: [AllocatedStorageGiB, MaxAllocatedStorageGiB]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+      - Label: {default: Availability}
+        Parameters: [MultiAz, BackupRetentionDays, EnableDeletionProtection]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  Engine:
+    Type: String
+    Default: postgres
+    AllowedValues: [postgres, mysql]
+    Description: Database engine. The port follows the engine, 5432 or 3306.
+  EngineVersion:
+    Type: String
+    Default: ''
+    Description: Optional engine version. Empty uses the default version RDS selects.
+  InstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: Instance class.
+  MasterUsername:
+    Type: String
+    Default: dbadmin
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]{0,15}$'
+    Description: Master username. RDS generates and stores the password in Secrets Manager.
+  DatabaseName:
+    Type: String
+    Default: app
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]{0,62}$'
+    Description: Initial database name.
+  AllocatedStorageGiB:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    Description: Initial storage in GiB.
+  MaxAllocatedStorageGiB:
+    Type: Number
+    Default: 100
+    MinValue: 21
+    Description: Storage autoscaling limit in GiB. Must exceed AllocatedStorageGiB.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the database.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private or isolated subnets in at least two Availability Zones.
+  SourceSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional security group allowed to connect, normally the application's.
+  MultiAz:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Keep a synchronous standby in another Availability Zone.
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: Days to keep automated backups.
+  EnableDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Block deletion until this is turned off.
+
+Conditions:
+  IsPostgres: !Equals [!Ref Engine, postgres]
+  HasVersion: !Not [!Equals [!Ref EngineVersion, '']]
+  HasSource: !Not [!Equals [!Ref SourceSecurityGroupId, '']]
+
+Resources:
+  SubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'Subnets for ${AWS::StackName}'
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Database access.
+      VpcId: !Ref VpcId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SourceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSource
+    Properties:
+      GroupId: !Ref SecurityGroup
+      Description: Allow from the configured security group
+      IpProtocol: tcp
+      FromPort: !If [IsPostgres, 5432, 3306]
+      ToPort: !If [IsPostgres, 5432, 3306]
+      SourceSecurityGroupId: !Ref SourceSecurityGroupId
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: !Ref Engine
+      EngineVersion: !If [HasVersion, !Ref EngineVersion, !Ref AWS::NoValue]
+      DBInstanceClass: !Ref InstanceClass
+      DBName: !Ref DatabaseName
+      Port: !If [IsPostgres, '5432', '3306']
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      AllocatedStorage: !Ref AllocatedStorageGiB
+      MaxAllocatedStorage: !Ref MaxAllocatedStorageGiB
+      StorageType: gp3
+      StorageEncrypted: true
+      PubliclyAccessible: false
+      MultiAZ: !Ref MultiAz
+      DBSubnetGroupName: !Ref SubnetGroup
+      VPCSecurityGroups: [!Ref SecurityGroup]
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      CopyTagsToSnapshot: true
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: !Ref EnableDeletionProtection
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  Endpoint:
+    Description: Database hostname.
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-Endpoint'
+  Port:
+    Description: Database port.
+    Value: !GetAtt Database.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+  SecretArn:
+    Description: Secrets Manager secret holding the master credentials.
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SecretArn'
+  SecurityGroupId:
+    Description: Database security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+  DbInstanceIdentifier:
+    Description: Instance identifier.
+    Value: !Ref Database
+    Export:
+      Name: !Sub '${AWS::StackName}-DbInstanceIdentifier'

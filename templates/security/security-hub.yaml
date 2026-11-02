@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security Hub with optional default standards.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: Security Hub enabled for the account with optional default standards.
+    Cost: Bills per security check and per finding ingested, after a 30-day trial. Standards need AWS Config recording, which bills separately.
+    Prerequisites:
+      - Only one hub can exist per account and region. Enable AWS Config first, see security/config-recorder.yaml.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Hub}
+        Parameters: [EnableDefaultStandards]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  EnableDefaultStandards:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Turn on the default security standards, which increases the check count.
+
+Resources:
+  Hub:
+    Type: AWS::SecurityHub::Hub
+    Properties:
+      EnableDefaultStandards: !Ref EnableDefaultStandards
+      ControlFindingGenerator: SECURITY_CONTROL
+      AutoEnableControls: true
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+Outputs:
+  HubArn:
+    Description: Hub ARN.
+    Value: !Ref Hub
+    Export:
+      Name: !Sub '${AWS::StackName}-HubArn'

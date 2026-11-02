@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Blueprint: Fargate service behind an HTTPS load balancer in a new VPC."
+
+Metadata:
+  Library:
+    Domain: blueprints
+    Summary: New VPC with one NAT gateway, HTTPS Application Load Balancer, ECS cluster and a Fargate service in private subnets.
+    Cost: Roughly the monthly cost of one NAT gateway and one load balancer, plus task vCPU and memory while running and data processed.
+    Prerequisites:
+      - An ACM certificate in this region. A container image reachable from the VPC.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Service}
+        Parameters: [Image, ContainerPort, HealthCheckPath, DesiredCount, Cpu, Memory, CpuArchitecture]
+      - Label: {default: Load balancer}
+        Parameters: [Scheme, AllowedCidr, CertificateArn]
+      - Label: {default: Network}
+        Parameters: [VpcCidr]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  Image:
+    Type: String
+    Description: Container image URI.
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port the container listens on.
+  HealthCheckPath:
+    Type: String
+    Default: /health
+    Description: Path the load balancer checks. It must return 200.
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    Description: Tasks to run.
+  Cpu:
+    Type: String
+    Default: '256'
+    AllowedValues: ['256', '512', '1024', '2048', '4096']
+    Description: Task CPU units. Must pair validly with Memory.
+  Memory:
+    Type: String
+    Default: '512'
+    Description: Task memory in MiB. Must pair validly with Cpu.
+  CpuArchitecture:
+    Type: String
+    Default: ARM64
+    AllowedValues: [ARM64, X86_64]
+    Description: Must match the image. ARM64 costs less.
+  Scheme:
+    Type: String
+    Default: internet-facing
+    AllowedValues: [internal, internet-facing]
+    Description: Whether the load balancer is reachable from the internet.
+  AllowedCidr:
+    Type: String
+    Description: CIDR allowed to reach the load balancer. Use 0.0.0.0/0 only for a public service.
+  CertificateArn:
+    Type: String
+    Description: ACM certificate for the HTTPS listener.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC.
+
+Conditions:
+  InternetFacing: !Equals [!Ref Scheme, internet-facing]
+
+Resources:
+  Network:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/networking/vpc.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcCidr: !Ref VpcCidr
+        NatMode: single
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  LoadBalancer:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/networking/load-balancer-alb.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SubnetIds: !If [InternetFacing, !GetAtt Network.Outputs.PublicSubnetIds, !GetAtt Network.Outputs.PrivateSubnetIds]
+        Scheme: !Ref Scheme
+        AllowedCidr: !Ref AllowedCidr
+        CertificateArn: !Ref CertificateArn
+        TargetPort: !Ref ContainerPort
+        HealthCheckPath: !Ref HealthCheckPath
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/containers/ecs-cluster.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Service:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/containers/ecs-fargate-service.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ClusterName: !GetAtt Cluster.Outputs.ClusterName
+        Image: !Ref Image
+        ContainerPort: !Ref ContainerPort
+        DesiredCount: !Ref DesiredCount
+        Cpu: !Ref Cpu
+        Memory: !Ref Memory
+        CpuArchitecture: !Ref CpuArchitecture
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SubnetIds: !GetAtt Network.Outputs.PrivateSubnetIds
+        SourceSecurityGroupId: !GetAtt LoadBalancer.Outputs.SecurityGroupId
+        TargetGroupArn: !GetAtt LoadBalancer.Outputs.TargetGroupArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  LoadBalancerDnsName:
+    Description: Load balancer DNS name.
+    Value: !GetAtt LoadBalancer.Outputs.LoadBalancerDnsName
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerDnsName'
+  ClusterName:
+    Description: Cluster name.
+    Value: !GetAtt Cluster.Outputs.ClusterName
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+  ServiceName:
+    Description: Service name.
+    Value: !GetAtt Service.Outputs.ServiceName
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceName'
+  VpcId:
+    Description: VPC ID.
+    Value: !GetAtt Network.Outputs.VpcId
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'

@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SQS queue with a dead-letter queue, encryption and a TLS-only policy.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: SQS queue with a dead-letter queue and redrive, managed encryption, a TLS-only policy and optional FIFO ordering.
+    Cost: No idle charge. Bills per million requests.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Queue}
+        Parameters: [UseFifo, VisibilityTimeoutSeconds, MessageRetentionSeconds]
+      - Label: {default: Dead letters}
+        Parameters: [MaxReceiveCount, DeadLetterRetentionSeconds]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  UseFifo:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Use FIFO queues with content-based deduplication. Changing this replaces the queues.
+  VisibilityTimeoutSeconds:
+    Type: Number
+    Default: 60
+    MinValue: 0
+    MaxValue: 43200
+    Description: Should exceed your consumer's processing time, and six times a Lambda consumer's timeout.
+  MessageRetentionSeconds:
+    Type: Number
+    Default: 345600
+    MinValue: 60
+    MaxValue: 1209600
+    Description: Seconds to keep messages. The default is 4 days.
+  MaxReceiveCount:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: Receives before a message moves to the dead-letter queue.
+  DeadLetterRetentionSeconds:
+    Type: Number
+    Default: 1209600
+    MinValue: 60
+    MaxValue: 1209600
+    Description: Seconds to keep dead letters. The default is 14 days.
+
+Conditions:
+  Fifo: !Equals [!Ref UseFifo, 'true']
+
+Resources:
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      FifoQueue: !If [Fifo, true, !Ref AWS::NoValue]
+      MessageRetentionPeriod: !Ref DeadLetterRetentionSeconds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      SqsManagedSseEnabled: true
+      FifoQueue: !If [Fifo, true, !Ref AWS::NoValue]
+      ContentBasedDeduplication: !If [Fifo, true, !Ref AWS::NoValue]
+      VisibilityTimeout: !Ref VisibilityTimeoutSeconds
+      MessageRetentionPeriod: !Ref MessageRetentionSeconds
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: !Ref MaxReceiveCount
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref Queue
+        - !Ref DeadLetterQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sqs:*
+            Resource:
+              - !GetAtt Queue.Arn
+              - !GetAtt DeadLetterQueue.Arn
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  QueueUrl:
+    Description: Queue URL.
+    Value: !Ref Queue
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueUrl'
+  QueueArn:
+    Description: Queue ARN.
+    Value: !GetAtt Queue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-QueueArn'
+  DeadLetterQueueUrl:
+    Description: Dead-letter queue URL.
+    Value: !Ref DeadLetterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-DeadLetterQueueUrl'
+  DeadLetterQueueArn:
+    Description: Dead-letter queue ARN.
+    Value: !GetAtt DeadLetterQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DeadLetterQueueArn'

@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM Access Analyzer for external access findings.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: IAM Access Analyzer reporting resources shared outside the account or organization.
+    Cost: External access analysis has no charge. Unused access analyzers, not created here, are paid.
+    Prerequisites:
+      - Organization type must run from the management or a delegated administrator account.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Analyzer}
+        Parameters: [AnalyzerType]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  AnalyzerType:
+    Type: String
+    Default: ACCOUNT
+    AllowedValues: [ACCOUNT, ORGANIZATION]
+    Description: Trust boundary used to decide what counts as external.
+
+Resources:
+  Analyzer:
+    Type: AWS::AccessAnalyzer::Analyzer
+    Properties:
+      Type: !Ref AnalyzerType
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  AnalyzerArn:
+    Description: Analyzer ARN.
+    Value: !Ref Analyzer
+    Export:
+      Name: !Sub '${AWS::StackName}-AnalyzerArn'

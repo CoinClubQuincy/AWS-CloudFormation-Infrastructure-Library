@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GuardDuty detector for threat detection.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: GuardDuty detector with a selectable findings publishing frequency.
+    Cost: Bills by volume of logs and events analyzed, after a 30-day trial per account and region.
+    Prerequisites:
+      - Only one detector can exist per account and region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Detector}
+        Parameters: [FindingPublishingFrequency]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  FindingPublishingFrequency:
+    Type: String
+    Default: SIX_HOURS
+    AllowedValues: [FIFTEEN_MINUTES, ONE_HOUR, SIX_HOURS]
+    Description: How often updated findings go to EventBridge.
+
+Resources:
+  Detector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: !Ref FindingPublishingFrequency
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  DetectorId:
+    Description: Detector ID.
+    Value: !Ref Detector
+    Export:
+      Name: !Sub '${AWS::StackName}-DetectorId'

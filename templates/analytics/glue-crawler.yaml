@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Glue database and crawler over one S3 path, with a scoped role.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: Glue database and crawler over one S3 path, with a role limited to that path and an optional schedule.
+    Cost: Crawlers bill per DPU-hour while running. The Data Catalog is free up to a limit of objects and requests.
+    Prerequisites:
+      - An S3 bucket holding the data.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Catalog}
+        Parameters: [DatabaseName]
+      - Label: {default: Source}
+        Parameters: [DataBucketName, DataPrefix]
+      - Label: {default: Schedule}
+        Parameters: [ScheduleExpression]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DatabaseName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9_]{0,254}$'
+    Description: Glue database name.
+  DataBucketName:
+    Type: String
+    Description: Bucket holding the data.
+  DataPrefix:
+    Type: String
+    Default: data/
+    Description: Key prefix to crawl, ending in a slash.
+  ScheduleExpression:
+    Type: String
+    Default: ''
+    Description: Optional cron schedule, such as cron(0 6 * * ? *). Empty means on demand only.
+
+Conditions:
+  HasSchedule: !Not [!Equals [!Ref ScheduleExpression, '']]
+
+Resources:
+  Database:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref DatabaseName
+        Description: !Sub '${ProjectName} ${Environment} catalog'
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: glue.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSGlueServiceRole'
+      Policies:
+        - PolicyName: ReadData
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${DataBucketName}'
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${DataBucketName}/${DataPrefix}*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Crawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Role: !GetAtt Role.Arn
+      DatabaseName: !Ref Database
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${DataBucketName}/${DataPrefix}'
+      Schedule: !If
+        - HasSchedule
+        - ScheduleExpression: !Ref ScheduleExpression
+        - !Ref AWS::NoValue
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+Outputs:
+  DatabaseName:
+    Description: Glue database name.
+    Value: !Ref Database
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseName'
+  CrawlerName:
+    Description: Crawler name.
+    Value: !Ref Crawler
+    Export:
+      Name: !Sub '${AWS::StackName}-CrawlerName'

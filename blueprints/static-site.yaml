@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Blueprint: private S3 website behind CloudFront, with an optional web ACL."
+
+Metadata:
+  Library:
+    Domain: blueprints
+    Summary: Private S3 website behind CloudFront using origin access control, with an optional rate-limiting web ACL.
+    Cost: Bills for CloudFront requests and transfer plus S3 storage. The optional web ACL adds a monthly charge.
+    Prerequisites:
+      - A web ACL with CLOUDFRONT scope must be created in us-east-1, so EnableWaf requires deploying there. An ACM certificate in us-east-1 if you use custom domains.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Site}
+        Parameters: [DefaultRootObject, SinglePageApp, PriceClass]
+      - Label: {default: Domain}
+        Parameters: [DomainNames, CertificateArn]
+      - Label: {default: Protection}
+        Parameters: [EnableWaf]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DefaultRootObject:
+    Type: String
+    Default: index.html
+    Description: Object served for the root URL.
+  SinglePageApp:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Serve the root object for missing paths.
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    Description: CloudFront edge locations to use. PriceClass_100 costs least.
+  DomainNames:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional custom domains, set together with CertificateArn.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: Optional ACM certificate in us-east-1.
+  EnableWaf:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Attach a web ACL. The stack must be in us-east-1.
+
+Conditions:
+  Waf: !Equals [!Ref EnableWaf, 'true']
+
+Rules:
+  WafRegion:
+    RuleCondition: !Equals [!Ref EnableWaf, 'true']
+    Assertions:
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: EnableWaf requires deploying this stack in us-east-1.
+
+Resources:
+  WebAcl:
+    Type: AWS::CloudFormation::Stack
+    Condition: Waf
+    Properties:
+      TemplateURL: ../templates/edge/waf-web-acl.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        Scope: CLOUDFRONT
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Site:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/edge/cloudfront-s3-site.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DefaultRootObject: !Ref DefaultRootObject
+        SinglePageApp: !Ref SinglePageApp
+        PriceClass: !Ref PriceClass
+        DomainNames: !Join [',', !Ref DomainNames]
+        CertificateArn: !Ref CertificateArn
+        WebAclArn: !If [Waf, !GetAtt WebAcl.Outputs.WebAclArn, '']
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  BucketName:
+    Description: Bucket to upload the site to.
+    Value: !GetAtt Site.Outputs.BucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  DistributionId:
+    Description: Distribution ID, used for invalidations.
+    Value: !GetAtt Site.Outputs.DistributionId
+    Export:
+      Name: !Sub '${AWS::StackName}-DistributionId'
+  SiteDomainName:
+    Description: CloudFront domain name.
+    Value: !GetAtt Site.Outputs.DistributionDomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-SiteDomainName'

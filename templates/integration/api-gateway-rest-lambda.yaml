@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: REST API that proxies all paths to a Lambda function, with a stage, throttling and optional logs.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: API Gateway REST API proxying all paths to one Lambda function, with a regional endpoint, a stage, throttling, IAM or open authorization, and optional access logs.
+    Cost: No idle charge. Bills per million requests, and logs bill for ingestion and storage.
+    Prerequisites:
+      - A Lambda function. Access logs need an account-level CloudWatch role. Set ManageAccountLoggingRole only if the account has none, because that setting applies to the whole account and region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Backend}
+        Parameters: [FunctionArn, AuthorizationType]
+      - Label: {default: Stage}
+        Parameters: [StageName, BurstLimit, RateLimit]
+      - Label: {default: Logging}
+        Parameters: [EnableAccessLogs, ManageAccountLoggingRole]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  FunctionArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:lambda:.+$'
+    Description: Lambda function that handles requests.
+  AuthorizationType:
+    Type: String
+    Default: AWS_IAM
+    AllowedValues: [AWS_IAM, NONE]
+    Description: AWS_IAM requires signed requests. NONE leaves the API open.
+  StageName:
+    Type: String
+    Default: v1
+    AllowedPattern: '^[a-zA-Z0-9_]+$'
+    Description: Stage name, which appears in the URL.
+  BurstLimit:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    Description: Burst request limit.
+  RateLimit:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    Description: Sustained requests per second.
+  EnableAccessLogs:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Send access logs to CloudWatch Logs. Needs an account-level CloudWatch role.
+  ManageAccountLoggingRole:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create the account-level API Gateway CloudWatch role. This overwrites any existing setting in this region.
+
+Conditions:
+  AccessLogs: !Equals [!Ref EnableAccessLogs, 'true']
+  ManageRole: !Equals [!Ref ManageAccountLoggingRole, 'true']
+
+Resources:
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref AWS::StackName
+      EndpointConfiguration:
+        Types: [REGIONAL]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ProxyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId
+      PathPart: '{proxy+}'
+
+  RootMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !GetAtt Api.RootResourceId
+      HttpMethod: ANY
+      AuthorizationType: !Ref AuthorizationType
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations'
+
+  ProxyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ProxyResource
+      HttpMethod: ANY
+      AuthorizationType: !Ref AuthorizationType
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations'
+
+  Deployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: [RootMethod, ProxyMethod]
+    Properties:
+      RestApiId: !Ref Api
+
+  CloudWatchRole:
+    Type: AWS::IAM::Role
+    Condition: ManageRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: apigateway.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  AccountSettings:
+    Type: AWS::ApiGateway::Account
+    Condition: ManageRole
+    Properties:
+      CloudWatchRoleArn: !GetAtt CloudWatchRole.Arn
+
+  AccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: AccessLogs
+    Properties:
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Stage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref Api
+      DeploymentId: !Ref Deployment
+      StageName: !Ref StageName
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: !Ref BurstLimit
+          ThrottlingRateLimit: !Ref RateLimit
+      AccessLogSetting: !If
+        - AccessLogs
+        - DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogGroup}'
+          Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","time":"$context.requestTime","method":"$context.httpMethod","path":"$context.path","status":"$context.status","latency":"$context.responseLatency"}'
+        - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+
+Outputs:
+  ApiId:
+    Description: API ID.
+    Value: !Ref Api
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiId'
+  InvokeUrl:
+    Description: Base URL of the stage.
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/${Stage}'
+    Export:
+      Name: !Sub '${AWS::StackName}-InvokeUrl'

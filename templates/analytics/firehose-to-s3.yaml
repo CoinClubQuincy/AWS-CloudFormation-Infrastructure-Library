@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Firehose delivery stream writing compressed records to an existing S3 bucket.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: Firehose delivery stream that writes compressed, time-partitioned records to an existing S3 bucket, with an error prefix, delivery logging and a scoped role.
+    Cost: No idle charge. Bills per GB ingested.
+    Prerequisites:
+      - An S3 bucket in this region. If it uses a customer-managed KMS key, grant this role access to the key.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Destination}
+        Parameters: [DestinationBucketArn, DataPrefix, ErrorPrefix, CompressionFormat]
+      - Label: {default: Buffering}
+        Parameters: [BufferSizeMiB, BufferIntervalSeconds]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DestinationBucketArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:s3:::.+$'
+    Description: Destination bucket ARN.
+  DataPrefix:
+    Type: String
+    Default: 'data/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/'
+    Description: Key prefix for delivered records.
+  ErrorPrefix:
+    Type: String
+    Default: 'errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/'
+    Description: Key prefix for records that failed delivery.
+  CompressionFormat:
+    Type: String
+    Default: GZIP
+    AllowedValues: [UNCOMPRESSED, GZIP, Snappy, ZIP, HADOOP_SNAPPY]
+    Description: Compression applied to delivered objects.
+  BufferSizeMiB:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 128
+    Description: Buffer size before delivery.
+  BufferIntervalSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 0
+    MaxValue: 900
+    Description: Longest time to buffer before delivery.
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  LogStream:
+    Type: AWS::Logs::LogStream
+    Properties:
+      LogGroupName: !Ref LogGroup
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: firehose.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: Deliver
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                Resource: !Ref DestinationBucketArn
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${DestinationBucketArn}/*'
+              - Effect: Allow
+                Action: logs:PutLogEvents
+                Resource: !GetAtt LogGroup.Arn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  DeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      DeliveryStreamEncryptionConfigurationInput:
+        KeyType: AWS_OWNED_CMK
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Ref DestinationBucketArn
+        RoleARN: !GetAtt Role.Arn
+        Prefix: !Ref DataPrefix
+        ErrorOutputPrefix: !Ref ErrorPrefix
+        CompressionFormat: !Ref CompressionFormat
+        BufferingHints:
+          SizeInMBs: !Ref BufferSizeMiB
+          IntervalInSeconds: !Ref BufferIntervalSeconds
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref LogGroup
+          LogStreamName: !Ref LogStream
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  DeliveryStreamName:
+    Description: Delivery stream name.
+    Value: !Ref DeliveryStream
+    Export:
+      Name: !Sub '${AWS::StackName}-DeliveryStreamName'
+  DeliveryStreamArn:
+    Description: Delivery stream ARN.
+    Value: !GetAtt DeliveryStream.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DeliveryStreamArn'

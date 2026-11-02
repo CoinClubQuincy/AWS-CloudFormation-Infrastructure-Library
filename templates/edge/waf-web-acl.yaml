@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: WAF web ACL with AWS managed rule groups and a per-IP rate limit.
+
+Metadata:
+  Library:
+    Domain: edge
+    Summary: WAF web ACL with AWS managed common, known-bad-input and IP reputation rule groups, plus a per-IP rate limit.
+    Cost: Bills monthly per web ACL and per rule, plus per million requests.
+    Prerequisites:
+      - CLOUDFRONT scope must be deployed in us-east-1.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Rules}
+        Parameters: [Scope, RateLimitPerFiveMinutes]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  Scope:
+    Type: String
+    Default: REGIONAL
+    AllowedValues: [REGIONAL, CLOUDFRONT]
+    Description: REGIONAL for load balancers and API Gateway. CLOUDFRONT for distributions, in us-east-1 only.
+  RateLimitPerFiveMinutes:
+    Type: Number
+    Default: 2000
+    MinValue: 10
+    Description: Requests one IP may send in a five-minute window before it is blocked.
+
+Resources:
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Scope: !Ref Scope
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub '${AWS::StackName}-acl'
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: AmazonIpReputation
+          Priority: 0
+          OverrideAction: {None: {}}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: ip-reputation
+            SampledRequestsEnabled: true
+        - Name: CommonRuleSet
+          Priority: 1
+          OverrideAction: {None: {}}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: common-rule-set
+            SampledRequestsEnabled: true
+        - Name: KnownBadInputs
+          Priority: 2
+          OverrideAction: {None: {}}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: known-bad-inputs
+            SampledRequestsEnabled: true
+        - Name: RateLimit
+          Priority: 3
+          Action: {Block: {}}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: !Ref RateLimitPerFiveMinutes
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: rate-limit
+            SampledRequestsEnabled: true
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  WebAclArn:
+    Description: Web ACL ARN.
+    Value: !GetAtt WebAcl.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebAclArn'

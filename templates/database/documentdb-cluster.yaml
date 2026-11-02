@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Amazon DocumentDB cluster with a managed password, encryption and no public access.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: Amazon DocumentDB cluster with one or more instances, a Secrets Manager master password, encryption and backups.
+    Cost: Bills hourly per instance plus storage and I/O, even when idle.
+    Prerequisites:
+      - Private or isolated subnets in at least two Availability Zones.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Cluster}
+        Parameters: [MasterUsername, InstanceClass, InstanceCount]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+      - Label: {default: Protection}
+        Parameters: [BackupRetentionDays, EnableDeletionProtection]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  MasterUsername:
+    Type: String
+    Default: docdbadmin
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9]{0,62}$'
+    Description: Master username. The password is generated and stored in Secrets Manager.
+  InstanceClass:
+    Type: String
+    Default: db.t4g.medium
+    Description: Instance class.
+  InstanceCount:
+    Type: String
+    Default: '1'
+    AllowedValues: ['1', '2']
+    Description: One instance, or two for failover.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the cluster.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private or isolated subnets in at least two Availability Zones.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to connect.
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: Days to keep automated backups.
+  EnableDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Block deletion until this is turned off.
+
+Conditions:
+  HasSecondInstance: !Equals [!Ref InstanceCount, '2']
+
+Resources:
+  SubnetGroup:
+    Type: AWS::DocDB::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'Subnets for ${AWS::StackName}'
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DocumentDB access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 27017, ToPort: 27017, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cluster:
+    Type: AWS::DocDB::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      StorageEncrypted: true
+      DBSubnetGroupName: !Ref SubnetGroup
+      VpcSecurityGroupIds: [!Ref SecurityGroup]
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      DeletionProtection: !Ref EnableDeletionProtection
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrimaryInstance:
+    Type: AWS::DocDB::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      DBInstanceClass: !Ref InstanceClass
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecondInstance:
+    Type: AWS::DocDB::DBInstance
+    Condition: HasSecondInstance
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      DBInstanceClass: !Ref InstanceClass
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  Endpoint:
+    Description: Cluster endpoint.
+    Value: !GetAtt Cluster.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-Endpoint'
+  Port:
+    Description: Cluster port.
+    Value: !GetAtt Cluster.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+  SecurityGroupId:
+    Description: Cluster security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

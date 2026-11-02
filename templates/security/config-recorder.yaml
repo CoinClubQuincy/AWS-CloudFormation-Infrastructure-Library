@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Config recorder and delivery channel with a dedicated bucket and role.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: AWS Config recorder for all supported resources, using daily recording by default, with a delivery channel, encrypted bucket and service role.
+    Cost: Bills per configuration item recorded and can reach significant amounts in busy accounts. Daily recording reduces this compared with continuous.
+    Prerequisites:
+      - Only one recorder can exist per account and region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Recording}
+        Parameters: [RecordingFrequency]
+      - Label: {default: Retention}
+        Parameters: [LogRetentionDays]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  RecordingFrequency:
+    Type: String
+    Default: DAILY
+    AllowedValues: [DAILY, CONTINUOUS]
+    Description: DAILY costs less. CONTINUOUS records every change.
+  LogRetentionDays:
+    Type: Number
+    Default: 365
+    MinValue: 1
+    Description: Days to keep configuration snapshots and history.
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireObjects
+            Status: Enabled
+            ExpirationInDays: !Ref LogRetentionDays
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ConfigAclCheck
+            Effect: Allow
+            Principal: {Service: config.amazonaws.com}
+            Action:
+              - s3:GetBucketAcl
+              - s3:ListBucket
+            Resource: !GetAtt Bucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: ConfigWrite
+            Effect: Allow
+            Principal: {Service: config.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${Bucket.Arn}/AWSLogs/${AWS::AccountId}/Config/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: config.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWS_ConfigRole'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Recorder:
+    Type: AWS::Config::ConfigurationRecorder
+    DependsOn: BucketPolicy
+    Properties:
+      RoleARN: !GetAtt Role.Arn
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: false
+      RecordingMode:
+        RecordingFrequency: !Ref RecordingFrequency
+
+  DeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    DependsOn: BucketPolicy
+    Properties:
+      S3BucketName: !Ref Bucket
+
+Outputs:
+  RecorderName:
+    Description: Configuration recorder name.
+    Value: !Ref Recorder
+    Export:
+      Name: !Sub '${AWS::StackName}-RecorderName'
+  BucketName:
+    Description: Bucket holding configuration data.
+    Value: !Ref Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'

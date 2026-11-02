@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch dashboard for one load balancer and one Lambda function.
+
+Metadata:
+  Library:
+    Domain: observability
+    Summary: CloudWatch dashboard showing request volume, errors and latency for one Application Load Balancer and one Lambda function.
+    Cost: The first three dashboards are free each month, then each bills monthly.
+    Prerequisites:
+      - The load balancer and function.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Resources}
+        Parameters: [LoadBalancerFullName, FunctionName]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  LoadBalancerFullName:
+    Type: String
+    Description: Load balancer's metric dimension, such as app/my-alb/0123456789abcdef.
+  FunctionName:
+    Type: String
+    Description: Lambda function name.
+
+Resources:
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type": "metric", "x": 0, "y": 0, "width": 12, "height": 6, "properties": {
+              "title": "ALB requests and errors", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [
+                ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${LoadBalancerFullName}"],
+                [".", "HTTPCode_Target_5XX_Count", ".", "."],
+                [".", "HTTPCode_ELB_5XX_Count", ".", "."]
+              ]}},
+            {"type": "metric", "x": 12, "y": 0, "width": 12, "height": 6, "properties": {
+              "title": "ALB target response time", "region": "${AWS::Region}", "view": "timeSeries", "period": 300,
+              "metrics": [
+                ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "${LoadBalancerFullName}", {"stat": "p50"}],
+                ["...", {"stat": "p95"}]
+              ]}},
+            {"type": "metric", "x": 0, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "Lambda invocations and errors", "region": "${AWS::Region}", "view": "timeSeries", "stat": "Sum", "period": 300,
+              "metrics": [
+                ["AWS/Lambda", "Invocations", "FunctionName", "${FunctionName}"],
+                [".", "Errors", ".", "."],
+                [".", "Throttles", ".", "."]
+              ]}},
+            {"type": "metric", "x": 12, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "Lambda duration", "region": "${AWS::Region}", "view": "timeSeries", "period": 300,
+              "metrics": [
+                ["AWS/Lambda", "Duration", "FunctionName", "${FunctionName}", {"stat": "p50"}],
+                ["...", {"stat": "p95"}]
+              ]}}
+          ]
+        }
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  DashboardName:
+    Description: Dashboard name.
+    Value: !Ref Dashboard
+    Export:
+      Name: !Sub '${AWS::StackName}-DashboardName'

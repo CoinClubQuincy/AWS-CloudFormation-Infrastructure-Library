@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Aurora PostgreSQL or MySQL cluster, Serverless v2 or provisioned, with a managed password.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: Aurora PostgreSQL or MySQL cluster using Serverless v2 or a provisioned instance class, with a managed password, encryption and an optional reader.
+    Cost: Serverless v2 bills per ACU-hour with MinCapacity as the floor, and provisioned instances bill hourly. Storage and I/O bill by use. A reader adds a second instance.
+    Prerequisites:
+      - Private or isolated subnets in at least two Availability Zones.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Engine}
+        Parameters: [Engine, EngineVersion, MasterUsername, DatabaseName]
+      - Label: {default: Capacity}
+        Parameters: [InstanceClass, MinCapacity, MaxCapacity, CreateReader]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+      - Label: {default: Protection}
+        Parameters: [BackupRetentionDays, EnableDeletionProtection]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  Engine:
+    Type: String
+    Default: aurora-postgresql
+    AllowedValues: [aurora-postgresql, aurora-mysql]
+    Description: Aurora engine. The port follows the engine, 5432 or 3306.
+  EngineVersion:
+    Type: String
+    Default: ''
+    Description: Optional engine version. Serverless v2 requires a version that supports it.
+  MasterUsername:
+    Type: String
+    Default: dbadmin
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]{0,15}$'
+    Description: Master username. RDS generates and stores the password in Secrets Manager.
+  DatabaseName:
+    Type: String
+    Default: app
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]{0,62}$'
+    Description: Initial database name.
+  InstanceClass:
+    Type: String
+    Default: db.serverless
+    Description: db.serverless for Serverless v2, or a provisioned class such as db.t4g.medium.
+  MinCapacity:
+    Type: Number
+    Default: 0.5
+    MinValue: 0
+    Description: Serverless v2 minimum ACUs. 0 allows auto-pause on engine versions that support it.
+  MaxCapacity:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    Description: Serverless v2 maximum ACUs, which also caps compute spend.
+  CreateReader:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Add a second instance for failover and read scaling.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the cluster.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private or isolated subnets in at least two Availability Zones.
+  SourceSecurityGroupId:
+    Type: String
+    Default: ''
+    Description: Optional security group allowed to connect.
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: Days to keep automated backups.
+  EnableDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Block deletion until this is turned off.
+
+Conditions:
+  IsPostgres: !Equals [!Ref Engine, aurora-postgresql]
+  HasVersion: !Not [!Equals [!Ref EngineVersion, '']]
+  HasSource: !Not [!Equals [!Ref SourceSecurityGroupId, '']]
+  IsServerless: !Equals [!Ref InstanceClass, db.serverless]
+  HasReader: !Equals [!Ref CreateReader, 'true']
+
+Resources:
+  SubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub 'Subnets for ${AWS::StackName}'
+      SubnetIds: !Ref SubnetIds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora cluster access.
+      VpcId: !Ref VpcId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SourceIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasSource
+    Properties:
+      GroupId: !Ref SecurityGroup
+      Description: Allow from the configured security group
+      IpProtocol: tcp
+      FromPort: !If [IsPostgres, 5432, 3306]
+      ToPort: !If [IsPostgres, 5432, 3306]
+      SourceSecurityGroupId: !Ref SourceSecurityGroupId
+
+  Cluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: !Ref Engine
+      EngineVersion: !If [HasVersion, !Ref EngineVersion, !Ref AWS::NoValue]
+      DatabaseName: !Ref DatabaseName
+      Port: !If [IsPostgres, 5432, 3306]
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      StorageEncrypted: true
+      DBSubnetGroupName: !Ref SubnetGroup
+      VpcSecurityGroupIds: [!Ref SecurityGroup]
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      CopyTagsToSnapshot: true
+      DeletionProtection: !Ref EnableDeletionProtection
+      ServerlessV2ScalingConfiguration: !If
+        - IsServerless
+        - MinCapacity: !Ref MinCapacity
+          MaxCapacity: !Ref MaxCapacity
+        - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  WriterInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      Engine: !Ref Engine
+      DBInstanceClass: !Ref InstanceClass
+      PubliclyAccessible: false
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ReaderInstance:
+    Type: AWS::RDS::DBInstance
+    Condition: HasReader
+    DependsOn: WriterInstance
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      Engine: !Ref Engine
+      DBInstanceClass: !Ref InstanceClass
+      PubliclyAccessible: false
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  WriterEndpoint:
+    Description: Cluster writer endpoint.
+    Value: !GetAtt Cluster.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-WriterEndpoint'
+  ReaderEndpoint:
+    Description: Cluster reader endpoint.
+    Value: !GetAtt Cluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-ReaderEndpoint'
+  Port:
+    Description: Cluster port.
+    Value: !GetAtt Cluster.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+  SecretArn:
+    Description: Secrets Manager secret holding the master credentials.
+    Value: !GetAtt Cluster.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SecretArn'
+  SecurityGroupId:
+    Description: Cluster security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+  DbClusterIdentifier:
+    Description: Cluster identifier.
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub '${AWS::StackName}-DbClusterIdentifier'

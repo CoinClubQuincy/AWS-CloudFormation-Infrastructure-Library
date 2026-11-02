@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Step Functions state machine with logging, optional tracing and a scoped role.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: Step Functions state machine, standard or express, using a definition from S3 or a minimal default, with logging, optional X-Ray tracing and a role you extend with a policy.
+    Cost: Standard bills per state transition. Express bills per request and duration. Logs bill for ingestion and storage.
+    Prerequisites:
+      - For a real workflow, a definition in S3 and a managed policy granting what its states call.
+    PhysicalNames:
+      LogGroup: Vended log groups use the /aws/vendedlogs/ prefix so they do not fill the CloudWatch Logs resource policy.
+    WildcardResources:
+      Role: CloudWatch Logs delivery actions and X-Ray trace actions have no resource-level support.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: State machine}
+        Parameters: [StateMachineType, DefinitionS3Bucket, DefinitionS3Key, ExecutionPolicyArn]
+      - Label: {default: Operations}
+        Parameters: [LogLevel, EnableTracing]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  StateMachineType:
+    Type: String
+    Default: STANDARD
+    AllowedValues: [STANDARD, EXPRESS]
+    Description: STANDARD for long-running workflows, EXPRESS for high-volume short ones.
+  DefinitionS3Bucket:
+    Type: String
+    Default: ''
+    Description: Optional bucket holding the definition. Empty deploys a one-step default.
+  DefinitionS3Key:
+    Type: String
+    Default: ''
+    Description: Key of the definition in DefinitionS3Bucket.
+  ExecutionPolicyArn:
+    Type: String
+    Default: ''
+    Description: Optional managed policy granting what the workflow's states call.
+  LogLevel:
+    Type: String
+    Default: ERROR
+    AllowedValues: [ALL, ERROR, FATAL, 'OFF']
+    Description: Execution logging level.
+  EnableTracing:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable X-Ray tracing, which bills per trace.
+
+Conditions:
+  HasS3Definition: !Not [!Equals [!Ref DefinitionS3Bucket, '']]
+  HasExecutionPolicy: !Not [!Equals [!Ref ExecutionPolicyArn, '']]
+  Tracing: !Equals [!Ref EnableTracing, 'true']
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${AWS::StackName}'
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: states.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If [HasExecutionPolicy, !Ref ExecutionPolicyArn, !Ref AWS::NoValue]
+      Policies:
+        - PolicyName: WriteLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                Resource: '*'
+              - !If
+                - Tracing
+                - Effect: Allow
+                  Action:
+                    - xray:PutTraceSegments
+                    - xray:PutTelemetryRecords
+                    - xray:GetSamplingRules
+                    - xray:GetSamplingTargets
+                  Resource: '*'
+                - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineType: !Ref StateMachineType
+      RoleArn: !GetAtt Role.Arn
+      DefinitionS3Location: !If
+        - HasS3Definition
+        - Bucket: !Ref DefinitionS3Bucket
+          Key: !Ref DefinitionS3Key
+        - !Ref AWS::NoValue
+      DefinitionString: !If
+        - HasS3Definition
+        - !Ref AWS::NoValue
+        - '{"Comment":"Replace this with your workflow.","StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}'
+      LoggingConfiguration:
+        Level: !Ref LogLevel
+        IncludeExecutionData: false
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt LogGroup.Arn
+      TracingConfiguration:
+        Enabled: !If [Tracing, true, false]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  StateMachineArn:
+    Description: State machine ARN.
+    Value: !Ref StateMachine
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachineArn'
+  StateMachineName:
+    Description: State machine name.
+    Value: !GetAtt StateMachine.Name
+    Export:
+      Name: !Sub '${AWS::StackName}-StateMachineName'
+  RoleArn:
+    Description: Execution role ARN.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

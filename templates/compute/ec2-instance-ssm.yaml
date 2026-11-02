@@ -1,0 +1,124 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private EC2 instance managed through Session Manager, with no SSH or key pair.
+
+Metadata:
+  Library:
+    Domain: compute
+    Summary: Private EC2 instance reached through Session Manager, with no SSH or key pair, IMDSv2 required and an encrypted root volume.
+    Cost: Bills hourly for the instance plus monthly for the volume. Default is a burstable arm64 instance. Stop or delete it when idle.
+    Prerequisites:
+      - A private subnet with a route to the SSM service, through NAT or the endpoints in networking/vpc-interface-endpoints.yaml.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Instance}
+        Parameters: [InstanceType, ImageParameter, RootVolumeGiB]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    Description: Instance type. Must match the architecture of the image.
+  ImageParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: SSM public parameter holding the AMI ID.
+  RootVolumeGiB:
+    Type: Number
+    Default: 20
+    MinValue: 8
+    Description: Root volume size in GiB.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the instance.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet for the instance. Use a private subnet.
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref Role]
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Instance with no inbound access. Session Manager needs outbound HTTPS only.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS to AWS services}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageParameter
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      Monitoring: false
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref RootVolumeGiB
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  InstanceId:
+    Description: Instance ID. Connect with aws ssm start-session.
+    Value: !Ref Instance
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceId'
+  SecurityGroupId:
+    Description: Instance security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+  RoleArn:
+    Description: Instance role ARN. Attach further policies here.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

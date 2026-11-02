@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EventBridge Scheduler schedule with a scoped role, retries and an optional dead-letter queue.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: EventBridge Scheduler group and schedule with a role limited to one action on one target, retries and an optional dead-letter queue.
+    Cost: Free up to a monthly invocation allowance, then bills per million.
+    Prerequisites:
+      - The target resource.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Schedule}
+        Parameters: [ScheduleExpression, Timezone, ScheduleEnabled]
+      - Label: {default: Target}
+        Parameters: [TargetArn, TargetAction, TargetInput, DeadLetterQueueArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ScheduleExpression:
+    Type: String
+    Default: rate(1 hour)
+    Description: A rate, cron or one-time at expression.
+  Timezone:
+    Type: String
+    Default: UTC
+    Description: Time zone for cron and at expressions.
+  ScheduleEnabled:
+    Type: String
+    Default: ENABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: Whether the schedule runs.
+  TargetArn:
+    Type: String
+    AllowedPattern: '^arn:.+$'
+    Description: ARN of the resource to invoke, such as a Lambda function or SQS queue.
+  TargetAction:
+    Type: String
+    Default: lambda:InvokeFunction
+    AllowedPattern: '^[a-z0-9-]+:[A-Za-z]+$'
+    Description: The single IAM action the schedule needs on the target. It must match the target type.
+  TargetInput:
+    Type: String
+    Default: '{}'
+    Description: JSON passed to the target.
+  DeadLetterQueueArn:
+    Type: String
+    Default: ''
+    Description: Optional SQS queue for failed invocations.
+
+Conditions:
+  HasDlq: !Not [!Equals [!Ref DeadLetterQueueArn, '']]
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: InvokeTarget
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: !Ref TargetAction
+                Resource: !Ref TargetArn
+              - !If
+                - HasDlq
+                - Effect: Allow
+                  Action: sqs:SendMessage
+                  Resource: !Ref DeadLetterQueueArn
+                - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: !Ref AWS::StackName
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Schedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      GroupName: !Ref ScheduleGroup
+      ScheduleExpression: !Ref ScheduleExpression
+      ScheduleExpressionTimezone: !Ref Timezone
+      State: !Ref ScheduleEnabled
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !Ref TargetArn
+        RoleArn: !GetAtt Role.Arn
+        Input: !Ref TargetInput
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 3600
+          MaximumRetryAttempts: 5
+        DeadLetterConfig: !If
+          - HasDlq
+          - Arn: !Ref DeadLetterQueueArn
+          - !Ref AWS::NoValue
+
+Outputs:
+  ScheduleArn:
+    Description: Schedule ARN.
+    Value: !GetAtt Schedule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ScheduleArn'
+  RoleArn:
+    Description: Role the schedule assumes.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

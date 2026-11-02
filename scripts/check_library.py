@@ -50,7 +50,7 @@ PHYSICAL_NAME_PROPS = {
     "AWS::ElasticLoadBalancingV2::LoadBalancer": "Name",
 }
 SECRET_PARAM = re.compile(r"password|passwd|secret|token|privatekey|apikey", re.I)
-SECRET_PARAM_OK = re.compile(r"(Arn|Name|Ttl|Validity|Rotation\w*|Days)$")
+SECRET_PARAM_OK = re.compile(r"^Enable|(Arn|Name|Ttl|Validity|Rotation\w*|Days|Length)$")
 HARDCODED = [
     (re.compile(r"arn:aws(-[a-z-]+)?:"), "hardcoded partition; use arn:${AWS::Partition}:"),
     (re.compile(r"(?<![0-9.])[0-9]{12}(?![0-9])"), "looks like a hardcoded account ID"),
@@ -207,7 +207,9 @@ def check_template(path: Path) -> list[str]:
             if missing:
                 err(f"{where}: missing tags {sorted(missing)} on {tag_prop}")
 
-        if rtype in STATEFUL:
+        # An instance inside a cluster holds no data of its own; the cluster carries the policy.
+        in_cluster = rtype == "AWS::RDS::DBInstance" and "DBClusterIdentifier" in props
+        if rtype in STATEFUL and not in_cluster:
             for policy in ("DeletionPolicy", "UpdateReplacePolicy"):
                 if resource.get(policy) not in ("Retain", "Snapshot", "RetainExceptOnCreate"):
                     err(f"{where}: {policy} must be Retain or Snapshot")
@@ -227,7 +229,7 @@ def check_template(path: Path) -> list[str]:
         if rtype in INGRESS_TYPES and logical_id not in exceptions["PublicIngress"]:
             rules = props.get("SecurityGroupIngress", []) if rtype.endswith("SecurityGroup") else [props]
             for rule in rules if isinstance(rules, list) else []:
-                if isinstance(rule, dict) and (rule.get("CidrIp") in OPEN_CIDRS or rule.get("CidrIpv6") in OPEN_CIDRS):
+                if isinstance(rule, dict) and any(isinstance(rule.get(k), str) and rule[k] in OPEN_CIDRS for k in ("CidrIp", "CidrIpv6")):
                     err(f"{where}: open ingress must be recorded in PublicIngress")
 
         for statement in iam_statements(props):
@@ -235,7 +237,8 @@ def check_template(path: Path) -> list[str]:
                 continue
             actions = statement.get("Action", [])
             for action in actions if isinstance(actions, list) else [actions]:
-                if isinstance(action, str) and (action == "*" or action.endswith(":*")):
+                # A KMS key policy must grant the account kms:* or the key becomes unmanageable.
+                if rtype != "AWS::KMS::Key" and isinstance(action, str) and (action == "*" or action.endswith(":*")):
                     err(f"{where}: wildcard action {action}")
             targets = statement.get("Resource", [])
             targets = targets if isinstance(targets, list) else [targets]

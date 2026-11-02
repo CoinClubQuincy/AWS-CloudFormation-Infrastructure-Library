@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Route 53 private hosted zone associated with one VPC.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: Route 53 private hosted zone associated with one VPC.
+    Cost: Bills monthly per hosted zone plus per million queries.
+    Prerequisites:
+      - A VPC with DNS support and DNS hostnames enabled.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Zone}
+        Parameters: [ZoneName, VpcId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ZoneName:
+    Type: String
+    AllowedPattern: '^([a-z0-9-]+\.)+[a-z0-9-]{2,}$'
+    Description: Private domain name, such as internal.example.com.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that resolves this zone.
+
+Resources:
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref ZoneName
+      HostedZoneConfig:
+        Comment: !Sub '${ProjectName} ${Environment} private zone'
+      VPCs:
+        - VPCId: !Ref VpcId
+          VPCRegion: !Ref AWS::Region
+      HostedZoneTags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  HostedZoneId:
+    Description: Hosted zone ID.
+    Value: !Ref HostedZone
+    Export:
+      Name: !Sub '${AWS::StackName}-HostedZoneId'

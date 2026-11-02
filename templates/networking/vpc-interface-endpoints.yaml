@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Interface VPC endpoints for selectable AWS services, with a shared security group.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: Interface VPC endpoints for SSM, ECR, CloudWatch Logs, Secrets Manager, KMS and STS, each group switched on individually.
+    Cost: Each endpoint bills hourly per Availability Zone plus per GB, so enable only what private workloads use. Nothing is enabled by default except the security group.
+    Prerequisites:
+      - An existing VPC and private subnets, for example from networking/vpc.yaml.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, AllowedCidr]
+      - Label: {default: Services}
+        Parameters: [EnableSsm, EnableEcr, EnableLogs, EnableSecretsManager, EnableKms, EnableSts]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that receives the endpoints.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for endpoint network interfaces, at most one per Availability Zone.
+  AllowedCidr:
+    Type: String
+    Description: CIDR allowed to reach the endpoints on port 443, normally the VPC CIDR.
+  EnableSsm:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create ssm, ssmmessages and ec2messages endpoints, needed for Session Manager without internet egress.
+  EnableEcr:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create ecr.api and ecr.dkr endpoints. Image layers also need the S3 gateway endpoint.
+  EnableLogs:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create the CloudWatch Logs endpoint.
+  EnableSecretsManager:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create the Secrets Manager endpoint.
+  EnableKms:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create the KMS endpoint.
+  EnableSts:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create the STS endpoint.
+
+Conditions:
+  Ssm: !Equals [!Ref EnableSsm, 'true']
+  Ecr: !Equals [!Ref EnableEcr, 'true']
+  Logs: !Equals [!Ref EnableLogs, 'true']
+  SecretsManager: !Equals [!Ref EnableSecretsManager, 'true']
+  Kms: !Equals [!Ref EnableKms, 'true']
+  Sts: !Equals [!Ref EnableSts, 'true']
+
+Resources:
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTPS from inside the network to interface endpoints.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref AllowedCidr, Description: Allow from the configured CIDR}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SsmEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Ssm
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssm'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SsmMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Ssm
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ssmmessages'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Ec2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Ssm
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ec2messages'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Ecr
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Ecr
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Logs
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: SecretsManager
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  KmsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Kms
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.kms'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  StsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: Sts
+    Properties:
+      VpcId: !Ref VpcId
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.sts'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  EndpointSecurityGroupId:
+    Description: Security group attached to the endpoints.
+    Value: !Ref EndpointSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-EndpointSecurityGroupId'

@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Encrypted Kinesis data stream, on-demand or provisioned.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: Encrypted Kinesis data stream in on-demand or provisioned mode with configurable retention.
+    Cost: Bills hourly per stream on demand, or per shard when provisioned, plus data volume. Retention beyond 24 hours bills extra.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Stream}
+        Parameters: [StreamMode, ShardCount, RetentionHours]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  StreamMode:
+    Type: String
+    Default: ON_DEMAND
+    AllowedValues: [ON_DEMAND, PROVISIONED]
+    Description: ON_DEMAND scales automatically. PROVISIONED can be cheaper for steady traffic.
+  ShardCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: Shards, used only when StreamMode is PROVISIONED.
+  RetentionHours:
+    Type: Number
+    Default: 24
+    MinValue: 24
+    MaxValue: 8760
+    Description: Hours to keep records.
+
+Conditions:
+  Provisioned: !Equals [!Ref StreamMode, PROVISIONED]
+
+Resources:
+  Stream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      StreamModeDetails:
+        StreamMode: !Ref StreamMode
+      ShardCount: !If [Provisioned, !Ref ShardCount, !Ref AWS::NoValue]
+      RetentionPeriodHours: !Ref RetentionHours
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: alias/aws/kinesis
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  StreamName:
+    Description: Stream name.
+    Value: !Ref Stream
+    Export:
+      Name: !Sub '${AWS::StackName}-StreamName'
+  StreamArn:
+    Description: Stream ARN.
+    Value: !GetAtt Stream.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StreamArn'

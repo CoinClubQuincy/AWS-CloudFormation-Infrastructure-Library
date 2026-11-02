@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Serverless ElastiCache for Valkey with encryption and snapshots.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: Serverless ElastiCache for Valkey with encryption, daily snapshots and optional usage limits.
+    Cost: Bills per GB-hour of data with a minimum, plus per compute unit. Set MaxDataGiB to cap spend.
+    Prerequisites:
+      - Private subnets in at least two Availability Zones.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Cache}
+        Parameters: [MajorEngineVersion, SnapshotRetentionDays, MaxDataGiB]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  MajorEngineVersion:
+    Type: String
+    Default: '8'
+    Description: Valkey major version.
+  SnapshotRetentionDays:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 35
+    Description: Days to keep daily snapshots. 0 disables them.
+  MaxDataGiB:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: Upper limit on stored data in GiB.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the cache.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets in at least two Availability Zones.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to connect to the cache.
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Valkey cache access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 6379, ToPort: 6380, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cache:
+    Type: AWS::ElastiCache::ServerlessCache
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ServerlessCacheName: !Ref AWS::StackName
+      Engine: valkey
+      MajorEngineVersion: !Ref MajorEngineVersion
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref SecurityGroup]
+      SnapshotRetentionLimit: !Ref SnapshotRetentionDays
+      CacheUsageLimits:
+        DataStorage:
+          Maximum: !Ref MaxDataGiB
+          Unit: GB
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  Endpoint:
+    Description: Cache hostname. TLS is required.
+    Value: !GetAtt Cache.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-Endpoint'
+  Port:
+    Description: Cache port.
+    Value: !GetAtt Cache.Endpoint.Port
+    Export:
+      Name: !Sub '${AWS::StackName}-Port'
+  SecurityGroupId:
+    Description: Cache security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

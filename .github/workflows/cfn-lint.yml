@@ -1,4 +1,4 @@
-name: cfn-lint
+name: validate
 
 on:
   push:
@@ -11,8 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Validate CloudFormation templates
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,36 +20,38 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Pinned so a new cfn-lint release cannot change the result without a commit here.
-      - name: Install cfn-lint
-        run: pip install cfn-lint==1.59.0
+      # Pinned so a new release cannot change the result without a commit here.
+      - name: Install tools
+        run: pip install cfn-lint==1.59.0 checkov==3.4.0
 
-      # cfn-lint's exit code is a bitmask: 2 = errors, 4 = warnings, 8 = informational.
-      # Only 0, 4, 8 and 12 (warnings and/or informational) pass. Errors (2), a linter
-      # failure (1) or any other code fail the build, so a crash can never read as green.
-      - name: Lint (errors and linter failures block)
+      # Any finding fails. These run separately because --ignore-checks on the command line
+      # replaces ignores declared inside a template. W3002 flags the relative TemplateURL that
+      # `aws cloudformation package` resolves, which is how blueprints are meant to deploy.
+      - name: Lint templates (warnings block)
+        run: cfn-lint --template 'templates/**/*.yaml'
+
+      - name: Lint blueprints (warnings block)
+        run: cfn-lint --ignore-checks W3002 --template 'blueprints/*.yaml'
+
+      - name: Check library conventions and catalog
+        run: python scripts/check_library.py
+
+      - name: Check that the checker catches defects
+        run: python scripts/test_checker.py
+
+      - name: Security scan
+        run: checkov -d templates --config-file .checkov.yaml
+
+      # Unsupported originals: errors block, warnings do not.
+      - name: Lint legacy templates
         run: |
           failed=0
-          files=$(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort)
-          [ -n "$files" ] || { echo "::error::no templates found"; exit 1; }
-          for f in $files; do
+          for f in $(find legacy \( -name '*.yaml' -o -name '*.yml' \) | sort); do
             rc=0
             out=$(cfn-lint "$f" 2>&1) || rc=$?
             case $rc in
               0|4|8|12) ;;
-              *)
-                echo "::error file=$f::cfn-lint exited $rc"
-                echo "$out"
-                failed=1
-                ;;
+              *) echo "::error file=$f::cfn-lint exited $rc"; echo "$out"; failed=1 ;;
             esac
           done
           exit $failed
-
-      - name: Warning report (non-blocking)
-        if: always()
-        run: |
-          for f in $(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort); do
-            out=$(cfn-lint "$f" 2>&1) || true
-            echo "$out" | grep '^W[0-9]' | sed "s|^|$f: |" || true
-          done

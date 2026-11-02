@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private S3 bucket that receives ALB, CloudFront and S3 server access logs, with log expiry.
+
+Metadata:
+  Library:
+    Domain: storage
+    Summary: Private S3 bucket that accepts ALB access logs, S3 server access logs and CloudFront standard logging v2, using service principals scoped to this account, with automatic expiry.
+    Cost: No idle charge beyond storage, which the expiry rule keeps bounded.
+    Prerequisites:
+      - none. CloudFront legacy standard logging is not supported because it needs ACLs.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Retention}
+        Parameters: [LogRetentionDays]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 1
+    Description: Days to keep logs before they expire.
+
+Resources:
+  # ALB access logs support only SSE-S3, so this bucket does not use KMS.
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLogs
+            Status: Enabled
+            ExpirationInDays: !Ref LogRetentionDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AlbAccessLogs
+            Effect: Allow
+            Principal: {Service: logdelivery.elasticloadbalancing.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${Bucket.Arn}/AWSLogs/${AWS::AccountId}/*'
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:loadbalancer/*'
+          - Sid: S3ServerAccessLogs
+            Effect: Allow
+            Principal: {Service: logging.s3.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${Bucket.Arn}/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: VendedLogDelivery
+            Effect: Allow
+            Principal: {Service: delivery.logs.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${Bucket.Arn}/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  BucketName:
+    Description: Log bucket name.
+    Value: !Ref Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  BucketArn:
+    Description: Log bucket ARN.
+    Value: !GetAtt Bucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketArn'

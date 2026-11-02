@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Encrypted EFS file system with mount targets, a TLS-only policy and lifecycle tiering.
+
+Metadata:
+  Library:
+    Domain: storage
+    Summary: Encrypted EFS file system on elastic throughput with mount targets in 2 or 3 subnets, TLS-only access, Infrequent Access tiering and an optional access point.
+    Cost: No idle charge beyond stored data. Elastic throughput bills per GB transferred. Automatic backups bill per GB when enabled.
+    Prerequisites:
+      - Private subnets, each in a different Availability Zone.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: File system}
+        Parameters: [EnableBackups, IaTransition]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetId1, SubnetId2, SubnetId3, SourceSecurityGroupId]
+      - Label: {default: Access point}
+        Parameters: [CreateAccessPoint, AccessPointPath, PosixUid, PosixGid]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  EnableBackups:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Enable automatic daily backups with AWS Backup.
+  IaTransition:
+    Type: String
+    Default: AFTER_30_DAYS
+    AllowedValues: [AFTER_7_DAYS, AFTER_14_DAYS, AFTER_30_DAYS, AFTER_60_DAYS, AFTER_90_DAYS]
+    Description: Idle time before files move to Infrequent Access.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the mount targets.
+  SubnetId1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First subnet for a mount target.
+  SubnetId2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second subnet, in a different Availability Zone.
+  SubnetId3:
+    Type: String
+    Default: ''
+    Description: Optional third subnet, in a different Availability Zone.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to mount the file system.
+  CreateAccessPoint:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create an access point that enforces a POSIX identity and root directory.
+  AccessPointPath:
+    Type: String
+    Default: /app
+    Description: Root directory for the access point.
+  PosixUid:
+    Type: Number
+    Default: 1000
+    MinValue: 0
+    Description: POSIX user ID enforced by the access point.
+  PosixGid:
+    Type: Number
+    Default: 1000
+    MinValue: 0
+    Description: POSIX group ID enforced by the access point.
+
+Conditions:
+  HasThirdSubnet: !Not [!Equals [!Ref SubnetId3, '']]
+  HasAccessPoint: !Equals [!Ref CreateAccessPoint, 'true']
+  Backups: !Equals [!Ref EnableBackups, 'true']
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: NFS access to the file system.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 2049, ToPort: 2049, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: elastic
+      BackupPolicy:
+        Status: !If [Backups, ENABLED, DISABLED]
+      LifecyclePolicies:
+        - TransitionToIA: !Ref IaTransition
+        - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
+      FileSystemPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: {AWS: '*'}
+            Action: '*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+      FileSystemTags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref SubnetId1
+      SecurityGroups: [!Ref SecurityGroup]
+
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref SubnetId2
+      SecurityGroups: [!Ref SecurityGroup]
+
+  MountTarget3:
+    Type: AWS::EFS::MountTarget
+    Condition: HasThirdSubnet
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !Ref SubnetId3
+      SecurityGroups: [!Ref SecurityGroup]
+
+  AccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Condition: HasAccessPoint
+    Properties:
+      FileSystemId: !Ref FileSystem
+      PosixUser:
+        Uid: !Ref PosixUid
+        Gid: !Ref PosixGid
+      RootDirectory:
+        Path: !Ref AccessPointPath
+        CreationInfo:
+          OwnerUid: !Ref PosixUid
+          OwnerGid: !Ref PosixGid
+          Permissions: '750'
+      AccessPointTags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  FileSystemId:
+    Description: File system ID.
+    Value: !Ref FileSystem
+    Export:
+      Name: !Sub '${AWS::StackName}-FileSystemId'
+  SecurityGroupId:
+    Description: Mount target security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

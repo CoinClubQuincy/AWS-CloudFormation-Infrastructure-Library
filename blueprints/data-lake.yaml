@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Blueprint: S3 data lake fed by Firehose, cataloged by Glue and queried with Athena."
+
+Metadata:
+  Library:
+    Domain: blueprints
+    Summary: S3 data lake with a Firehose delivery stream writing partitioned data, a Glue crawler cataloging it and an Athena workgroup with a per-query scan limit.
+    Cost: No idle compute charge. Bills per GB through Firehose, per crawler DPU-hour, per TB scanned by Athena, plus S3 storage.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Catalog}
+        Parameters: [GlueDatabaseName, CrawlerSchedule]
+      - Label: {default: Ingest}
+        Parameters: [BufferIntervalSeconds]
+      - Label: {default: Query}
+        Parameters: [MaxBytesScannedPerQuery]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  GlueDatabaseName:
+    Type: String
+    Default: datalake
+    AllowedPattern: '^[a-z][a-z0-9_]{0,127}$'
+    Description: Glue database name. Underscores, not hyphens, keep Athena queries simple.
+  CrawlerSchedule:
+    Type: String
+    Default: ''
+    Description: Optional crawler schedule, such as cron(0 3 * * ? *). Without it the crawler runs on demand.
+  BufferIntervalSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 60
+    MaxValue: 900
+    Description: Longest time Firehose buffers before writing.
+  MaxBytesScannedPerQuery:
+    Type: Number
+    Default: 10737418240
+    MinValue: 10485760
+    Description: Athena cancels a query that scans more than this. It bounds query cost.
+
+Resources:
+  Bucket:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/storage/s3-bucket.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Ingest:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/analytics/firehose-to-s3.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DestinationBucketArn: !GetAtt Bucket.Outputs.BucketArn
+        BufferIntervalSeconds: !Ref BufferIntervalSeconds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Catalog:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/analytics/glue-crawler.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        DatabaseName: !Ref GlueDatabaseName
+        DataBucketName: !GetAtt Bucket.Outputs.BucketName
+        ScheduleExpression: !Ref CrawlerSchedule
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Query:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/analytics/athena-workgroup.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ResultsBucketName: !GetAtt Bucket.Outputs.BucketName
+        MaxBytesScannedPerQuery: !Ref MaxBytesScannedPerQuery
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  BucketName:
+    Description: Data lake bucket.
+    Value: !GetAtt Bucket.Outputs.BucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  DeliveryStreamName:
+    Description: Firehose stream to send records to.
+    Value: !GetAtt Ingest.Outputs.DeliveryStreamName
+    Export:
+      Name: !Sub '${AWS::StackName}-DeliveryStreamName'
+  CrawlerName:
+    Description: Glue crawler.
+    Value: !GetAtt Catalog.Outputs.CrawlerName
+    Export:
+      Name: !Sub '${AWS::StackName}-CrawlerName'
+  DatabaseName:
+    Description: Glue database.
+    Value: !GetAtt Catalog.Outputs.DatabaseName
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseName'
+  WorkGroupName:
+    Description: Athena workgroup.
+    Value: !GetAtt Query.Outputs.WorkGroupName
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkGroupName'

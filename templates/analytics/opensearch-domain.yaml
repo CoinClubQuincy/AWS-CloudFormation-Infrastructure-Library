@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC-only OpenSearch Service domain with encryption and an access policy for one role.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: VPC-only OpenSearch Service domain with encryption at rest and in transit, enforced HTTPS, and an access policy scoped to one IAM role.
+    Cost: Bills hourly per data node plus per GB of EBS storage, even when idle.
+    Prerequisites:
+      - A private subnet per Availability Zone used, and an IAM role for clients. The OpenSearch service-linked role must exist or be creatable.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Domain}
+        Parameters: [DomainName, EngineVersion, AccessRoleArn]
+      - Label: {default: Capacity}
+        Parameters: [InstanceType, InstanceCount, VolumeGiB, EnableZoneAwareness]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DomainName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{2,27}$'
+    Description: Domain name, 3 to 28 lowercase characters.
+  EngineVersion:
+    Type: String
+    Default: OpenSearch_2.19
+    Description: Engine version. Check the OpenSearch Service documentation for current versions.
+  AccessRoleArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:iam::.+$'
+    Description: IAM role allowed to call the domain over HTTP.
+  InstanceType:
+    Type: String
+    Default: t3.small.search
+    Description: Data node instance type. T3 suits development, and production should use a larger family.
+  InstanceCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: Data nodes. Use an even count of at least 2 with zone awareness.
+  VolumeGiB:
+    Type: Number
+    Default: 10
+    MinValue: 10
+    Description: EBS volume size per node in GiB.
+  EnableZoneAwareness:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Spread nodes across two Availability Zones. Needs two subnets.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the domain.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: One subnet, or two when zone awareness is on.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to reach the domain on port 443.
+
+Conditions:
+  ZoneAware: !Equals [!Ref EnableZoneAwareness, 'true']
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: OpenSearch domain access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Domain:
+    Type: AWS::OpenSearchService::Domain
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DomainName: !Ref DomainName
+      EngineVersion: !Ref EngineVersion
+      ClusterConfig:
+        InstanceType: !Ref InstanceType
+        InstanceCount: !Ref InstanceCount
+        ZoneAwarenessEnabled: !If [ZoneAware, true, false]
+        ZoneAwarenessConfig: !If
+          - ZoneAware
+          - AvailabilityZoneCount: 2
+          - !Ref AWS::NoValue
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref VolumeGiB
+      VPCOptions:
+        SubnetIds: !Ref SubnetIds
+        SecurityGroupIds: [!Ref SecurityGroup]
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-PFS-2023-10
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {AWS: !Ref AccessRoleArn}
+            Action: es:ESHttp*
+            Resource: !Sub 'arn:${AWS::Partition}:es:${AWS::Region}:${AWS::AccountId}:domain/${DomainName}/*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  DomainEndpoint:
+    Description: VPC endpoint of the domain.
+    Value: !GetAtt Domain.DomainEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainEndpoint'
+  DomainArn:
+    Description: Domain ARN.
+    Value: !GetAtt Domain.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainArn'
+  SecurityGroupId:
+    Description: Domain security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

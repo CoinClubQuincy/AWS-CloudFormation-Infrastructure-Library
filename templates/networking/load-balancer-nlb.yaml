@@ -1,0 +1,165 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Network Load Balancer with a TCP or TLS listener and one target group.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: Network Load Balancer with a TCP or TLS listener, a security group and one target group. Internal by default.
+    Cost: Bills hourly plus per network load balancer capacity unit, whether or not it receives traffic.
+    Prerequisites:
+      - Subnets in the VPC. An ACM certificate if the listener uses TLS.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, Scheme, AllowedCidr]
+      - Label: {default: Listener}
+        Parameters: [ListenerProtocol, ListenerPort, CertificateArn]
+      - Label: {default: Target}
+        Parameters: [TargetPort, TargetType]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the load balancer.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for the load balancer.
+  Scheme:
+    Type: String
+    Default: internal
+    AllowedValues: [internal, internet-facing]
+    Description: Whether the load balancer is reachable from the internet.
+  AllowedCidr:
+    Type: String
+    Description: CIDR allowed to reach the listener.
+  ListenerProtocol:
+    Type: String
+    Default: TCP
+    AllowedValues: [TCP, TLS]
+    Description: TLS terminates on the load balancer and needs CertificateArn.
+  ListenerPort:
+    Type: Number
+    Default: 443
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port the listener accepts traffic on.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM certificate ARN, required when ListenerProtocol is TLS.
+  TargetPort:
+    Type: Number
+    Default: 8080
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port the targets listen on.
+  TargetType:
+    Type: String
+    Default: ip
+    AllowedValues: [ip, instance]
+    Description: Use ip for Fargate and instance for Auto Scaling groups.
+
+Conditions:
+  IsTls: !Equals [!Ref ListenerProtocol, TLS]
+
+Rules:
+  TlsNeedsCertificate:
+    RuleCondition: !Equals [!Ref ListenerProtocol, TLS]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CertificateArn, '']]
+        AssertDescription: CertificateArn is required when ListenerProtocol is TLS.
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Network load balancer listener.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: !Ref ListenerPort, ToPort: !Ref ListenerPort, CidrIp: !Ref AllowedCidr, Description: Allow from the configured CIDR}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: network
+      Scheme: !Ref Scheme
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref SecurityGroup]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: TCP
+      Port: !Ref TargetPort
+      TargetType: !Ref TargetType
+      HealthCheckProtocol: TCP
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: !Ref ListenerPort
+      Protocol: !Ref ListenerProtocol
+      SslPolicy: !If [IsTls, ELBSecurityPolicy-TLS13-1-2-2021-06, !Ref AWS::NoValue]
+      Certificates: !If
+        - IsTls
+        - - CertificateArn: !Ref CertificateArn
+        - !Ref AWS::NoValue
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  LoadBalancerArn:
+    Description: Load balancer ARN.
+    Value: !Ref LoadBalancer
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerArn'
+  LoadBalancerDnsName:
+    Description: DNS name of the load balancer.
+    Value: !GetAtt LoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerDnsName'
+  CanonicalHostedZoneId:
+    Description: Hosted zone ID for Route 53 alias records.
+    Value: !GetAtt LoadBalancer.CanonicalHostedZoneID
+    Export:
+      Name: !Sub '${AWS::StackName}-CanonicalHostedZoneId'
+  SecurityGroupId:
+    Description: Load balancer security group. Allow it as the source on your targets.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
+  TargetGroupArn:
+    Description: Target group ARN.
+    Value: !Ref TargetGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-TargetGroupArn'

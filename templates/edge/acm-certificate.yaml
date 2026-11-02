@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DNS-validated ACM certificate.
+
+Metadata:
+  Library:
+    Domain: edge
+    Summary: DNS-validated ACM certificate with optional alternative names, validated through a Route 53 zone.
+    Cost: Public certificates have no charge.
+    Prerequisites:
+      - A Route 53 public hosted zone for the domain, in this account. CloudFront requires the certificate in us-east-1, so deploy there for CloudFront use.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Certificate}
+        Parameters: [DomainName, SubjectAlternativeNames, HostedZoneId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DomainName:
+    Type: String
+    Description: Primary domain, such as example.com.
+  SubjectAlternativeNames:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional extra names in the same hosted zone, such as *.example.com.
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Hosted zone where CloudFormation writes the validation records.
+
+Conditions:
+  HasAlternativeNames: !Not [!Equals [!Join ['', !Ref SubjectAlternativeNames], '']]
+
+Resources:
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      SubjectAlternativeNames: !If [HasAlternativeNames, !Ref SubjectAlternativeNames, !Ref AWS::NoValue]
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  CertificateArn:
+    Description: Certificate ARN.
+    Value: !Ref Certificate
+    Export:
+      Name: !Sub '${AWS::StackName}-CertificateArn'

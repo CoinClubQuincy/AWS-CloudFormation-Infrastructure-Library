@@ -1,0 +1,154 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cognito user pool with a strong password policy, an app client and optional hosted domain.
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks: [W1030] # Empty hosted-UI defaults are guarded by HasDomain and a Rule.
+  Library:
+    Domain: security
+    Summary: Cognito user pool with email sign-in, a strong password policy, selectable MFA, deletion protection, a public app client and optional hosted domain with OAuth.
+    Cost: Free up to a monthly active user allowance on the Essentials tier, then bills per active user. Default email sending is limited and needs SES for production.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Sign-in}
+        Parameters: [AllowSelfSignUp, MfaConfiguration, MinimumPasswordLength]
+      - Label: {default: Hosted UI}
+        Parameters: [DomainPrefix, CallbackUrls, LogoutUrls]
+      - Label: {default: Protection}
+        Parameters: [EnableDeletionProtection]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  AllowSelfSignUp:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Let users register themselves. false means only admins create users.
+  MfaConfiguration:
+    Type: String
+    Default: OPTIONAL
+    AllowedValues: ['OFF', OPTIONAL, 'ON']
+    Description: Whether authenticator-app MFA is off, optional or required.
+  MinimumPasswordLength:
+    Type: Number
+    Default: 12
+    MinValue: 8
+    MaxValue: 99
+    Description: Minimum password length.
+  DomainPrefix:
+    Type: String
+    Default: ''
+    Description: Optional globally unique prefix for the Cognito hosted domain.
+  CallbackUrls:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: OAuth callback URLs, required with DomainPrefix.
+  LogoutUrls:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional OAuth sign-out URLs.
+  EnableDeletionProtection:
+    Type: String
+    Default: ACTIVE
+    AllowedValues: [ACTIVE, INACTIVE]
+    Description: Block deletion of the user pool until this is INACTIVE.
+
+Conditions:
+  HasDomain: !Not [!Equals [!Ref DomainPrefix, '']]
+  HasLogoutUrls: !Not [!Equals [!Join ['', !Ref LogoutUrls], '']]
+  MfaEnabled: !Not [!Equals [!Ref MfaConfiguration, 'OFF']]
+  SelfSignUp: !Equals [!Ref AllowSelfSignUp, 'true']
+
+Rules:
+  DomainNeedsCallbacks:
+    RuleCondition: !Not [!Equals [!Ref DomainPrefix, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Join ['', !Ref CallbackUrls], '']]
+        AssertDescription: CallbackUrls is required when DomainPrefix is set.
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DeletionProtection: !Ref EnableDeletionProtection
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: !Ref MfaConfiguration
+      EnabledMfas: !If [MfaEnabled, [SOFTWARE_TOKEN_MFA], !Ref AWS::NoValue]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: !If [SelfSignUp, false, true]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - {Name: verified_email, Priority: 1}
+      Policies:
+        PasswordPolicy:
+          MinimumLength: !Ref MinimumPasswordLength
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+      UserPoolTags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+  AppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      SupportedIdentityProviders: !If [HasDomain, [COGNITO], !Ref AWS::NoValue]
+      AllowedOAuthFlowsUserPoolClient: !If [HasDomain, true, !Ref AWS::NoValue]
+      AllowedOAuthFlows: !If [HasDomain, [code], !Ref AWS::NoValue]
+      AllowedOAuthScopes: !If [HasDomain, [openid, email, profile], !Ref AWS::NoValue]
+      CallbackURLs: !If [HasDomain, !Ref CallbackUrls, !Ref AWS::NoValue]
+      LogoutURLs: !If [HasLogoutUrls, !Ref LogoutUrls, !Ref AWS::NoValue]
+
+  Domain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: HasDomain
+    Properties:
+      Domain: !Ref DomainPrefix
+      UserPoolId: !Ref UserPool
+
+Outputs:
+  UserPoolId:
+    Description: User pool ID.
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolId'
+  UserPoolArn:
+    Description: User pool ARN.
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-UserPoolArn'
+  AppClientId:
+    Description: App client ID.
+    Value: !Ref AppClient
+    Export:
+      Name: !Sub '${AWS::StackName}-AppClientId'
+  IssuerUrl:
+    Description: JWT issuer URL, usable with integration/api-gateway-http-lambda.yaml.
+    Value: !Sub 'https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${UserPool}'
+    Export:
+      Name: !Sub '${AWS::StackName}-IssuerUrl'

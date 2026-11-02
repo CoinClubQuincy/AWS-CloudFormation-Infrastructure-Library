@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild project with a GitHub source through CodeConnections, on small arm64 compute.
+
+Metadata:
+  Library:
+    Domain: cicd
+    Summary: CodeBuild project with a GitHub source through a CodeConnections connection, small arm64 compute, retained logs and a scoped role.
+    Cost: No idle charge. Bills per build minute, and logs bill for ingestion and storage.
+    Prerequisites:
+      - A CodeConnections connection in AVAILABLE state. Completing the GitHub handshake happens once in the console.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Source}
+        Parameters: [ConnectionArn, RepositoryUrl, BuildspecPath, EnableWebhook]
+      - Label: {default: Environment}
+        Parameters: [BuildImage, ComputeType, TimeoutMinutes]
+      - Label: {default: Permissions}
+        Parameters: [ExtraPolicyArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ConnectionArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:(codeconnections|codestar-connections):.+$'
+    Description: CodeConnections connection to GitHub.
+  RepositoryUrl:
+    Type: String
+    AllowedPattern: '^https://github\.com/.+$'
+    Description: Repository URL, such as https://github.com/owner/repo.git.
+  BuildspecPath:
+    Type: String
+    Default: buildspec.yml
+    Description: Path to the buildspec inside the repository.
+  EnableWebhook:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Build automatically on pushes and pull requests.
+  BuildImage:
+    Type: String
+    Default: aws/codebuild/amazonlinux-aarch64-standard:3.0
+    Description: Build image. It must be an arm64 image.
+  ComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_SMALL
+    AllowedValues: [BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE]
+    Description: Build compute size.
+  TimeoutMinutes:
+    Type: Number
+    Default: 30
+    MinValue: 5
+    MaxValue: 480
+    Description: Build timeout.
+  ExtraPolicyArn:
+    Type: String
+    Default: ''
+    Description: Optional managed policy granting what the build needs.
+
+Conditions:
+  HasExtraPolicy: !Not [!Equals [!Ref ExtraPolicyArn, '']]
+  Webhook: !Equals [!Ref EnableWebhook, 'true']
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codebuild.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If [HasExtraPolicy, !Ref ExtraPolicyArn, !Ref AWS::NoValue]
+      Policies:
+        - PolicyName: BuildBasics
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt LogGroup.Arn
+              - Effect: Allow
+                Action:
+                  - codeconnections:GetConnectionToken
+                  - codeconnections:GetConnection
+                  - codeconnections:UseConnection
+                  - codestar-connections:GetConnectionToken
+                  - codestar-connections:GetConnection
+                  - codestar-connections:UseConnection
+                Resource: !Ref ConnectionArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Project:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      ServiceRole: !GetAtt Role.Arn
+      TimeoutInMinutes: !Ref TimeoutMinutes
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Source:
+        Type: GITHUB
+        Location: !Ref RepositoryUrl
+        BuildSpec: !Ref BuildspecPath
+        Auth:
+          Type: CODECONNECTIONS
+          Resource: !Ref ConnectionArn
+      Triggers:
+        Webhook: !If [Webhook, true, false]
+      Environment:
+        Type: ARM_CONTAINER
+        ComputeType: !Ref ComputeType
+        Image: !Ref BuildImage
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref LogGroup
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  ProjectName:
+    Description: CodeBuild project name.
+    Value: !Ref Project
+    Export:
+      Name: !Sub '${AWS::StackName}-ProjectName'
+  ProjectArn:
+    Description: CodeBuild project ARN.
+    Value: !GetAtt Project.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ProjectArn'
+  RoleArn:
+    Description: Build role ARN.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

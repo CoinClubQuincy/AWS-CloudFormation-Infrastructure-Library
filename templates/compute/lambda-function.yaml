@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Lambda function from S3 code on arm64, with its log group and a least-privilege role.
+
+Metadata:
+  Library:
+    Domain: compute
+    Summary: Lambda function on arm64 from an S3 code object, with a retention-limited log group, least-privilege role, and optional VPC access, dead-letter queue, reserved concurrency and X-Ray tracing.
+    Cost: No idle charge. Bills per request and per GB-second, and logs bill for ingestion and storage.
+    Prerequisites:
+      - A code ZIP in an S3 bucket in this region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Code}
+        Parameters: [CodeS3Bucket, CodeS3Key, Handler, Runtime]
+      - Label: {default: Sizing}
+        Parameters: [MemorySize, TimeoutSeconds, ReservedConcurrency]
+      - Label: {default: Network}
+        Parameters: [SubnetIds, SecurityGroupIds]
+      - Label: {default: Operations}
+        Parameters: [LogRetentionDays, DeadLetterQueueArn, EnableTracing, ExtraPolicyArn, ConfigValue]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  CodeS3Bucket:
+    Type: String
+    Description: Bucket holding the deployment ZIP.
+  CodeS3Key:
+    Type: String
+    Description: Key of the deployment ZIP. Use a new key per version so updates deploy.
+  Handler:
+    Type: String
+    Default: app.handler
+    Description: Function entry point.
+  Runtime:
+    Type: String
+    Default: python3.13
+    Description: Lambda runtime identifier.
+  MemorySize:
+    Type: Number
+    Default: 256
+    MinValue: 128
+    MaxValue: 10240
+    Description: Memory in MB. CPU scales with memory.
+  TimeoutSeconds:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+    Description: Function timeout in seconds.
+  ReservedConcurrency:
+    Type: Number
+    Default: -1
+    MinValue: -1
+    Description: Reserved concurrent executions. -1 leaves it unreserved.
+  SubnetIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional subnets. Set together with SecurityGroupIds to run inside a VPC.
+  SecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional security groups for VPC access.
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: Days to keep function logs.
+  DeadLetterQueueArn:
+    Type: String
+    Default: ''
+    Description: Optional SQS queue ARN that receives failed asynchronous invocations.
+  EnableTracing:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable active X-Ray tracing, which bills per trace.
+  ExtraPolicyArn:
+    Type: String
+    Default: ''
+    Description: Optional managed policy ARN granting what your code needs.
+  ConfigValue:
+    Type: String
+    Default: ''
+    Description: Optional non-secret value exposed to the code as APP_CONFIG, such as a table name.
+
+Conditions:
+  InVpc: !Not [!Equals [!Join ['', !Ref SubnetIds], '']]
+  HasDlq: !Not [!Equals [!Ref DeadLetterQueueArn, '']]
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, -1]]
+  Tracing: !Equals [!Ref EnableTracing, 'true']
+  HasExtraPolicy: !Not [!Equals [!Ref ExtraPolicyArn, '']]
+  HasConfig: !Not [!Equals [!Ref ConfigValue, '']]
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If
+          - InVpc
+          - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - !Ref AWS::NoValue
+        - !If
+          - Tracing
+          - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AWSXRayDaemonWriteAccess'
+          - !Ref AWS::NoValue
+        - !If [HasExtraPolicy, !Ref ExtraPolicyArn, !Ref AWS::NoValue]
+      Policies:
+        - PolicyName: WriteLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt LogGroup.Arn
+        - !If
+          - HasDlq
+          - PolicyName: SendToDeadLetterQueue
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: sqs:SendMessage
+                  Resource: !Ref DeadLetterQueueArn
+          - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures: [arm64]
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Handler: !Ref Handler
+      Runtime: !Ref Runtime
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref TimeoutSeconds
+      Role: !GetAtt Role.Arn
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      DeadLetterConfig: !If
+        - HasDlq
+        - TargetArn: !Ref DeadLetterQueueArn
+        - !Ref AWS::NoValue
+      TracingConfig:
+        Mode: !If [Tracing, Active, PassThrough]
+      VpcConfig: !If
+        - InVpc
+        - SubnetIds: !Ref SubnetIds
+          SecurityGroupIds: !Ref SecurityGroupIds
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          PROJECT_NAME: !Ref ProjectName
+          ENVIRONMENT: !Ref Environment
+          APP_CONFIG: !If [HasConfig, !Ref ConfigValue, !Ref AWS::NoValue]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  FunctionName:
+    Description: Function name.
+    Value: !Ref Function
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionName'
+  FunctionArn:
+    Description: Function ARN.
+    Value: !GetAtt Function.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'
+  RoleArn:
+    Description: Execution role ARN.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+  LogGroupName:
+    Description: Log group name.
+    Value: !Ref LogGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-LogGroupName'

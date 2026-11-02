@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Backup vault and plan with daily and optional monthly rules, selected by tag.
+
+Metadata:
+  Library:
+    Domain: storage
+    Summary: AWS Backup vault and plan with a daily rule and optional monthly rule, protecting resources that carry a chosen tag.
+    Cost: Bills per GB of backup storage, and restores bill per GB.
+    Prerequisites:
+      - Resources tagged with the selection tag. Opt-in for those resource types in AWS Backup settings.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Schedule}
+        Parameters: [DailyRetentionDays, EnableMonthly, MonthlyRetentionDays]
+      - Label: {default: Selection}
+        Parameters: [SelectionTagKey, SelectionTagValue]
+      - Label: {default: Security}
+        Parameters: [KmsKeyArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  DailyRetentionDays:
+    Type: Number
+    Default: 35
+    MinValue: 1
+    Description: Days to keep daily backups.
+  EnableMonthly:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Add a monthly backup with longer retention.
+  MonthlyRetentionDays:
+    Type: Number
+    Default: 365
+    MinValue: 1
+    Description: Days to keep monthly backups.
+  SelectionTagKey:
+    Type: String
+    Default: Backup
+    Description: Tag key that selects resources.
+  SelectionTagValue:
+    Type: String
+    Default: 'true'
+    Description: Tag value that selects resources.
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional KMS key for the vault. Empty uses the AWS managed backup key.
+
+Conditions:
+  Monthly: !Equals [!Ref EnableMonthly, 'true']
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+
+Resources:
+  Vault:
+    Type: AWS::Backup::BackupVault
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BackupVaultName: !Ref AWS::StackName
+      EncryptionKeyArn: !If [HasKms, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      BackupVaultTags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: backup.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Plan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Ref AWS::StackName
+        BackupPlanRule:
+          - RuleName: daily
+            TargetBackupVault: !Ref Vault
+            ScheduleExpression: cron(0 5 * * ? *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 480
+            Lifecycle:
+              DeleteAfterDays: !Ref DailyRetentionDays
+          - !If
+            - Monthly
+            - RuleName: monthly
+              TargetBackupVault: !Ref Vault
+              ScheduleExpression: cron(0 6 1 * ? *)
+              StartWindowMinutes: 60
+              CompletionWindowMinutes: 720
+              Lifecycle:
+                DeleteAfterDays: !Ref MonthlyRetentionDays
+            - !Ref AWS::NoValue
+      BackupPlanTags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+  Selection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref Plan
+      BackupSelection:
+        SelectionName: tagged-resources
+        IamRoleArn: !GetAtt Role.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: !Ref SelectionTagKey
+            ConditionValue: !Ref SelectionTagValue
+
+Outputs:
+  VaultName:
+    Description: Backup vault name.
+    Value: !Ref Vault
+    Export:
+      Name: !Sub '${AWS::StackName}-VaultName'
+  PlanId:
+    Description: Backup plan ID.
+    Value: !Ref Plan
+    Export:
+      Name: !Sub '${AWS::StackName}-PlanId'

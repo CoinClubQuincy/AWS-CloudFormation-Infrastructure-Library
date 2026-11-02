@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EventBridge rule with an event pattern and one target, on the default bus or a new one.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: EventBridge rule on the default bus or a new custom bus, sending matching events to an SQS, SNS or Lambda target with retries and an optional dead-letter queue.
+    Cost: AWS service events on the default bus are free. Custom events bill per million.
+    Prerequisites:
+      - The target. SQS and SNS targets need a resource policy allowing events.amazonaws.com. This template adds the permission for Lambda targets.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Rule}
+        Parameters: [EventPattern, CreateCustomBus]
+      - Label: {default: Target}
+        Parameters: [TargetArn, TargetIsLambda, DeadLetterQueueArn]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  EventPattern:
+    Type: String
+    Description: 'JSON event pattern, such as {"source":["aws.ec2"]}.'
+  CreateCustomBus:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create a custom event bus rather than using the default bus.
+  TargetArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:(sqs|sns|lambda):.+$'
+    Description: ARN of the SQS queue, SNS topic or Lambda function.
+  TargetIsLambda:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Set true if TargetArn is a Lambda function, to add the invoke permission.
+  DeadLetterQueueArn:
+    Type: String
+    Default: ''
+    Description: Optional SQS queue for events that cannot be delivered. It must allow events.amazonaws.com.
+
+Conditions:
+  CustomBus: !Equals [!Ref CreateCustomBus, 'true']
+  LambdaTarget: !Equals [!Ref TargetIsLambda, 'true']
+  HasDlq: !Not [!Equals [!Ref DeadLetterQueueArn, '']]
+
+Resources:
+  EventBus:
+    Type: AWS::Events::EventBus
+    Condition: CustomBus
+    Properties:
+      Name: !Ref AWS::StackName
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Rule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: !If [CustomBus, !Ref EventBus, !Ref AWS::NoValue]
+      EventPattern: !Ref EventPattern
+      State: ENABLED
+      Targets:
+        - Id: primary
+          Arn: !Ref TargetArn
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 3600
+            MaximumRetryAttempts: 5
+          DeadLetterConfig: !If
+            - HasDlq
+            - Arn: !Ref DeadLetterQueueArn
+            - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: LambdaTarget
+    Properties:
+      FunctionName: !Ref TargetArn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Rule.Arn
+
+Outputs:
+  RuleArn:
+    Description: Rule ARN.
+    Value: !GetAtt Rule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RuleArn'

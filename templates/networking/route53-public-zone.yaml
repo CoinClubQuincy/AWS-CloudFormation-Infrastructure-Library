@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Route 53 public hosted zone.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: Route 53 public hosted zone.
+    Cost: Bills monthly per hosted zone plus per million queries.
+    Prerequisites:
+      - A domain whose registrar you can point at the output name servers.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Zone}
+        Parameters: [ZoneName]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ZoneName:
+    Type: String
+    AllowedPattern: '^([a-z0-9-]+\.)+[a-z]{2,}$'
+    Description: Domain name, such as example.com.
+
+Resources:
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref ZoneName
+      HostedZoneConfig:
+        Comment: !Sub '${ProjectName} ${Environment} public zone'
+      HostedZoneTags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  HostedZoneId:
+    Description: Hosted zone ID.
+    Value: !Ref HostedZone
+    Export:
+      Name: !Sub '${AWS::StackName}-HostedZoneId'
+  NameServers:
+    Description: Comma-separated name servers to set at your registrar.
+    Value: !Join [',', !GetAtt HostedZone.NameServers]
+    Export:
+      Name: !Sub '${AWS::StackName}-NameServers'

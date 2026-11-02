@@ -1,0 +1,32 @@
+# Each skip is explained in docs/SECURITY-SCAN.md. Add a reason there before adding one here.
+framework:
+  - cloudformation
+compact: true
+quiet: true
+skip-check:
+  - CKV_AWS_18
+  - CKV_AWS_19
+  - CKV_AWS_21
+  - CKV_AWS_27
+  - CKV_AWS_35
+  - CKV_AWS_58
+  - CKV_AWS_65
+  - CKV_AWS_73
+  - CKV_AWS_76
+  - CKV_AWS_84
+  - CKV_AWS_85
+  - CKV_AWS_86
+  - CKV_AWS_91
+  - CKV_AWS_116
+  - CKV_AWS_118
+  - CKV_AWS_119
+  - CKV_AWS_120
+  - CKV_AWS_136
+  - CKV_AWS_157
+  - CKV_AWS_158
+  - CKV_AWS_161
+  - CKV_AWS_162
+  - CKV_AWS_173
+  - CKV_AWS_174
+  - CKV_AWS_195
+  - CKV_AWS_317

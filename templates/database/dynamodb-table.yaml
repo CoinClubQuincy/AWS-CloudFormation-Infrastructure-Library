@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: On-demand DynamoDB table with point-in-time recovery and optional sort key, TTL, stream and index.
+
+Metadata:
+  Library:
+    Domain: database
+    Summary: On-demand DynamoDB table with point-in-time recovery and deletion protection, plus optional sort key, TTL, stream, global secondary index and customer-managed encryption.
+    Cost: No idle charge beyond storage. Reads and writes bill per request, and point-in-time recovery bills per GB.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Keys}
+        Parameters: [PartitionKeyName, PartitionKeyType, SortKeyName, SortKeyType]
+      - Label: {default: Features}
+        Parameters: [TtlAttributeName, StreamViewType, KmsKeyArn]
+      - Label: {default: Index}
+        Parameters: [IndexPartitionKeyName, IndexPartitionKeyType]
+      - Label: {default: Protection}
+        Parameters: [EnablePointInTimeRecovery, EnableDeletionProtection]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  PartitionKeyName:
+    Type: String
+    Default: pk
+    Description: Partition key attribute.
+  PartitionKeyType:
+    Type: String
+    Default: S
+    AllowedValues: [S, N, B]
+    Description: Partition key type.
+  SortKeyName:
+    Type: String
+    Default: ''
+    Description: Optional sort key attribute.
+  SortKeyType:
+    Type: String
+    Default: S
+    AllowedValues: [S, N, B]
+    Description: Sort key type, used when SortKeyName is set.
+  TtlAttributeName:
+    Type: String
+    Default: ''
+    Description: Optional attribute holding an expiry time in epoch seconds.
+  StreamViewType:
+    Type: String
+    Default: NONE
+    AllowedValues: [NONE, KEYS_ONLY, NEW_IMAGE, OLD_IMAGE, NEW_AND_OLD_IMAGES]
+    Description: Change stream contents. NONE disables the stream.
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional customer-managed KMS key. Empty uses the AWS owned key, which is free.
+  IndexPartitionKeyName:
+    Type: String
+    Default: ''
+    Description: Optional partition key for one global secondary index. Must differ from the table keys.
+  IndexPartitionKeyType:
+    Type: String
+    Default: S
+    AllowedValues: [S, N, B]
+    Description: Index partition key type.
+  EnablePointInTimeRecovery:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Allow restore to any second in the recovery window.
+  EnableDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Block deletion until this is turned off.
+
+Conditions:
+  HasSortKey: !Not [!Equals [!Ref SortKeyName, '']]
+  HasTtl: !Not [!Equals [!Ref TtlAttributeName, '']]
+  HasStream: !Not [!Equals [!Ref StreamViewType, NONE]]
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasIndex: !Not [!Equals [!Ref IndexPartitionKeyName, '']]
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: !Ref EnableDeletionProtection
+      AttributeDefinitions:
+        - {AttributeName: !Ref PartitionKeyName, AttributeType: !Ref PartitionKeyType}
+        - !If
+          - HasSortKey
+          - {AttributeName: !Ref SortKeyName, AttributeType: !Ref SortKeyType}
+          - !Ref AWS::NoValue
+        - !If
+          - HasIndex
+          - {AttributeName: !Ref IndexPartitionKeyName, AttributeType: !Ref IndexPartitionKeyType}
+          - !Ref AWS::NoValue
+      KeySchema:
+        - {AttributeName: !Ref PartitionKeyName, KeyType: HASH}
+        - !If
+          - HasSortKey
+          - {AttributeName: !Ref SortKeyName, KeyType: RANGE}
+          - !Ref AWS::NoValue
+      GlobalSecondaryIndexes: !If
+        - HasIndex
+        - - IndexName: index1
+            KeySchema:
+              - {AttributeName: !Ref IndexPartitionKeyName, KeyType: HASH}
+            Projection:
+              ProjectionType: ALL
+        - !Ref AWS::NoValue
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !Ref EnablePointInTimeRecovery
+      SSESpecification: !If
+        - HasKms
+        - SSEEnabled: true
+          SSEType: KMS
+          KMSMasterKeyId: !Ref KmsKeyArn
+        - !Ref AWS::NoValue
+      TimeToLiveSpecification: !If
+        - HasTtl
+        - AttributeName: !Ref TtlAttributeName
+          Enabled: true
+        - !Ref AWS::NoValue
+      StreamSpecification: !If
+        - HasStream
+        - StreamViewType: !Ref StreamViewType
+        - !Ref AWS::NoValue
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  TableName:
+    Description: Table name.
+    Value: !Ref Table
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+  TableArn:
+    Description: Table ARN.
+    Value: !GetAtt Table.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TableArn'

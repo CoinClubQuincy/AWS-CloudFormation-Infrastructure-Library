@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Redshift Serverless namespace and workgroup with a managed admin password.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: Redshift Serverless namespace and private workgroup at low base capacity, with a Secrets Manager admin password.
+    Cost: Compute bills per RPU-hour only while queries run, with a per-query minimum. Storage bills per GB-month.
+    Prerequisites:
+      - Subnets in at least three Availability Zones, as Redshift Serverless requires.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Database}
+        Parameters: [AdminUsername, DatabaseName]
+      - Label: {default: Capacity}
+        Parameters: [BaseCapacity, MaxCapacity]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  AdminUsername:
+    Type: String
+    Default: rsadmin
+    AllowedPattern: '^[a-z][a-z0-9_]{0,62}$'
+    Description: Admin username. The password is generated and stored in Secrets Manager.
+  DatabaseName:
+    Type: String
+    Default: dev
+    AllowedPattern: '^[a-z][a-z0-9_]{0,62}$'
+    Description: Initial database name.
+  BaseCapacity:
+    Type: Number
+    Default: 8
+    MinValue: 8
+    MaxValue: 512
+    Description: Base RPUs, in increments of 8.
+  MaxCapacity:
+    Type: Number
+    Default: 32
+    MinValue: 8
+    Description: Maximum RPUs, which also caps spend.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the workgroup.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets in at least three Availability Zones.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group allowed to connect on port 5439.
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redshift Serverless access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 5439, ToPort: 5439, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Namespace:
+    Type: AWS::RedshiftServerless::Namespace
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      NamespaceName: !Sub '${ProjectName}-${Environment}'
+      AdminUsername: !Ref AdminUsername
+      ManageAdminPassword: true
+      DbName: !Ref DatabaseName
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Workgroup:
+    Type: AWS::RedshiftServerless::Workgroup
+    Properties:
+      WorkgroupName: !Sub '${ProjectName}-${Environment}'
+      NamespaceName: !Ref Namespace
+      BaseCapacity: !Ref BaseCapacity
+      MaxCapacity: !Ref MaxCapacity
+      PubliclyAccessible: false
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds: [!Ref SecurityGroup]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  NamespaceName:
+    Description: Namespace name.
+    Value: !Ref Namespace
+    Export:
+      Name: !Sub '${AWS::StackName}-NamespaceName'
+  WorkgroupName:
+    Description: Workgroup name.
+    Value: !Ref Workgroup
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkgroupName'
+  SecurityGroupId:
+    Description: Workgroup security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

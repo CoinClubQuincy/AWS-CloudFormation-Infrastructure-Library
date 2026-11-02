@@ -1,0 +1,143 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: HTTP API that proxies all routes to a Lambda function, with logs, throttling and optional JWT auth.
+
+Metadata:
+  Library:
+    Domain: integration
+    Summary: API Gateway HTTP API proxying all routes to one Lambda function, with access logs, throttling and an optional JWT authorizer.
+    Cost: No idle charge. Bills per million requests, and logs bill for ingestion and storage.
+    Prerequisites:
+      - A Lambda function, for example from compute/lambda-function.yaml.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Backend}
+        Parameters: [FunctionArn]
+      - Label: {default: Throttling}
+        Parameters: [BurstLimit, RateLimit]
+      - Label: {default: Authorization}
+        Parameters: [JwtIssuer, JwtAudience]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  FunctionArn:
+    Type: String
+    AllowedPattern: '^arn:[a-z-]+:lambda:.+$'
+    Description: Lambda function that handles requests.
+  BurstLimit:
+    Type: Number
+    Default: 100
+    MinValue: 1
+    Description: Burst request limit.
+  RateLimit:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    Description: Sustained requests per second.
+  JwtIssuer:
+    Type: String
+    Default: ''
+    Description: Optional JWT issuer URL, such as a Cognito user pool. Empty leaves the API open.
+  JwtAudience:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Allowed JWT audiences, required with JwtIssuer.
+
+Conditions:
+  HasJwt: !Not [!Equals [!Ref JwtIssuer, '']]
+
+Resources:
+  Api:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Ref AWS::StackName
+      ProtocolType: HTTP
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref Api
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Ref FunctionArn
+      PayloadFormatVersion: '2.0'
+
+  Authorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Condition: HasJwt
+    Properties:
+      ApiId: !Ref Api
+      Name: jwt
+      AuthorizerType: JWT
+      IdentitySource: ['$request.header.Authorization']
+      JwtConfiguration:
+        Issuer: !Ref JwtIssuer
+        Audience: !Ref JwtAudience
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref Api
+      RouteKey: $default
+      Target: !Sub 'integrations/${Integration}'
+      AuthorizationType: !If [HasJwt, JWT, NONE]
+      AuthorizerId: !If [HasJwt, !Ref Authorizer, !Ref AWS::NoValue]
+
+  AccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref Api
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: !Ref BurstLimit
+        ThrottlingRateLimit: !Ref RateLimit
+      AccessLogSettings:
+        # API Gateway rejects the trailing :* that the log group's Arn attribute includes.
+        DestinationArn: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AccessLogGroup}'
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","time":"$context.requestTime","method":"$context.httpMethod","path":"$context.path","status":"$context.status","latency":"$context.responseLatency","error":"$context.error.message"}'
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FunctionArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*'
+
+Outputs:
+  ApiId:
+    Description: API ID.
+    Value: !Ref Api
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiId'
+  ApiEndpoint:
+    Description: Base URL of the API.
+    Value: !GetAtt Api.ApiEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'

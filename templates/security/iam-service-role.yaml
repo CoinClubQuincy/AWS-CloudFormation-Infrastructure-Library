@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM role for one AWS service principal with chosen managed policies.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: IAM role assumable by one AWS service principal, with chosen managed policies, an optional permissions boundary and optional EC2 instance profile.
+    Cost: IAM has no charge.
+    Prerequisites:
+      - Managed policies to attach, which should grant only what the service needs.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Role}
+        Parameters: [ServicePrincipal, ManagedPolicyArns, PermissionsBoundaryArn, MaxSessionSeconds, CreateInstanceProfile]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  ServicePrincipal:
+    Type: String
+    AllowedPattern: '^[a-z0-9.-]+\.amazonaws\.com(\.cn)?$'
+    Description: Service that assumes the role, such as lambda.amazonaws.com.
+  ManagedPolicyArns:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional managed policy ARNs to attach.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Optional permissions boundary policy ARN.
+  MaxSessionSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Maximum session duration.
+  CreateInstanceProfile:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Also create an instance profile, for EC2.
+
+Conditions:
+  HasPolicies: !Not [!Equals [!Join ['', !Ref ManagedPolicyArns], '']]
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+  InstanceProfile: !Equals [!Ref CreateInstanceProfile, 'true']
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: !Ref ServicePrincipal}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: !If [HasPolicies, !Ref ManagedPolicyArns, !Ref AWS::NoValue]
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
+      MaxSessionDuration: !Ref MaxSessionSeconds
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Profile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: InstanceProfile
+    Properties:
+      Roles: [!Ref Role]
+
+Outputs:
+  RoleName:
+    Description: Role name.
+    Value: !Ref Role
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleName'
+  RoleArn:
+    Description: Role ARN.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

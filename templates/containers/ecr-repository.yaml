@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR repository with immutable tags, scan on push and an image lifecycle policy.
+
+Metadata:
+  Library:
+    Domain: containers
+    Summary: ECR repository with immutable tags, scan on push, encryption and a lifecycle policy that limits stored images.
+    Cost: Bills per GB stored. The lifecycle policy keeps storage bounded.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Lifecycle}
+        Parameters: [KeepImageCount, UntaggedExpiryDays]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  KeepImageCount:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    Description: Tagged images to keep.
+  UntaggedExpiryDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    Description: Days before untagged images expire.
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !Sub |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": ${UntaggedExpiryDays}
+                },
+                "action": {"type": "expire"}
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the newest images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": ${KeepImageCount}
+                },
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  RepositoryName:
+    Description: Repository name.
+    Value: !Ref Repository
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryName'
+  RepositoryUri:
+    Description: Repository URI for docker push.
+    Value: !GetAtt Repository.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryUri'
+  RepositoryArn:
+    Description: Repository ARN.
+    Value: !GetAtt Repository.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryArn'

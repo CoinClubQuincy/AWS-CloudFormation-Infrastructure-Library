@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MSK Serverless cluster with IAM authentication and a security group.
+
+Metadata:
+  Library:
+    Domain: analytics
+    Summary: MSK Serverless cluster with IAM authentication and a security group for one client source.
+    Cost: Bills hourly per cluster and per partition, plus data in and out, even when idle.
+    Prerequisites:
+      - Subnets in at least two Availability Zones. Fetch bootstrap brokers with aws kafka get-bootstrap-brokers.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Network}
+        Parameters: [VpcId, SubnetIds, SourceSecurityGroupId]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the cluster.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets in at least two Availability Zones.
+  SourceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security group of clients allowed to connect on port 9098.
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MSK Serverless access.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 9098, ToPort: 9098, SourceSecurityGroupId: !Ref SourceSecurityGroupId, Description: Allow from the configured security group}
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cluster:
+    Type: AWS::MSK::ServerlessCluster
+    Properties:
+      ClusterName: !Ref AWS::StackName
+      ClientAuthentication:
+        Sasl:
+          Iam:
+            Enabled: true
+      VpcConfigs:
+        - SubnetIds: !Ref SubnetIds
+          SecurityGroups: [!Ref SecurityGroup]
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        ManagedBy: CloudFormation
+
+Outputs:
+  ClusterArn:
+    Description: Cluster ARN.
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterArn'
+  SecurityGroupId:
+    Description: Cluster security group.
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'

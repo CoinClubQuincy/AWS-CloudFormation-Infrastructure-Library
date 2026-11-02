@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudWatch log group with retention, optional encryption and an optional metric filter.
+
+Metadata:
+  Library:
+    Domain: observability
+    Summary: CloudWatch log group with retention, optional KMS encryption and an optional metric filter that counts matching lines.
+    Cost: Bills per GB ingested and stored. Retention bounds storage, and the first custom metrics are free.
+    Prerequisites:
+      - For KMS, a key whose policy allows the CloudWatch Logs service principal in this region.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Logs}
+        Parameters: [RetentionDays, KmsKeyArn]
+      - Label: {default: Metric filter}
+        Parameters: [FilterPattern, MetricNamespace, MetricName]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  RetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: Days to keep logs.
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional KMS key ARN.
+  FilterPattern:
+    Type: String
+    Default: ''
+    Description: Optional CloudWatch Logs filter pattern, such as ERROR.
+  MetricNamespace:
+    Type: String
+    Default: Application
+    Description: Namespace for the metric.
+  MetricName:
+    Type: String
+    Default: MatchedLogLines
+    Description: Metric name.
+
+Conditions:
+  HasKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  HasFilter: !Not [!Equals [!Ref FilterPattern, '']]
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref RetentionDays
+      KmsKeyId: !If [HasKms, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  MetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: HasFilter
+    Properties:
+      LogGroupName: !Ref LogGroup
+      FilterPattern: !Ref FilterPattern
+      MetricTransformations:
+        - MetricNamespace: !Ref MetricNamespace
+          MetricName: !Ref MetricName
+          MetricValue: '1'
+          DefaultValue: 0
+
+Outputs:
+  LogGroupName:
+    Description: Log group name.
+    Value: !Ref LogGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-LogGroupName'
+  LogGroupArn:
+    Description: Log group ARN.
+    Value: !GetAtt LogGroup.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LogGroupArn'

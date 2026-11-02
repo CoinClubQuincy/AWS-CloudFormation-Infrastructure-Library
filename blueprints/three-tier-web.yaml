@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Blueprint: load balancer, Fargate service and an RDS database in isolated subnets."
+
+Metadata:
+  Library:
+    Domain: blueprints
+    Summary: Three-tier stack with an HTTPS load balancer in public subnets, a Fargate service in private subnets and an RDS database in isolated subnets. The service can reach the database through a shared security group and reads the generated credentials from Secrets Manager. The secret ARN reaches the container as APP_CONFIG.
+    Cost: Monthly cost of one NAT gateway, one load balancer and the database instance and storage, plus task vCPU and memory while running.
+    Prerequisites:
+      - An ACM certificate in this region. A container image reachable from the VPC.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Service}
+        Parameters: [Image, ContainerPort, HealthCheckPath, DesiredCount]
+      - Label: {default: Load balancer}
+        Parameters: [AllowedCidr, CertificateArn]
+      - Label: {default: Database}
+        Parameters: [Engine, InstanceClass, DatabaseName, MultiAz, EnableDeletionProtection]
+      - Label: {default: Network}
+        Parameters: [VpcCidr]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  Image:
+    Type: String
+    Description: Container image URI.
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    MinValue: 1
+    MaxValue: 65535
+    Description: Port the container listens on.
+  HealthCheckPath:
+    Type: String
+    Default: /health
+    Description: Path the load balancer checks. It must return 200.
+  DesiredCount:
+    Type: Number
+    Default: 2
+    MinValue: 0
+    Description: Tasks to run.
+  AllowedCidr:
+    Type: String
+    Description: CIDR allowed to reach the load balancer. Use 0.0.0.0/0 only for a public service.
+  CertificateArn:
+    Type: String
+    Description: ACM certificate for the HTTPS listener.
+  Engine:
+    Type: String
+    Default: postgres
+    AllowedValues: [postgres, mysql, mariadb]
+    Description: Database engine.
+  InstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: Database instance class.
+  DatabaseName:
+    Type: String
+    Default: app
+    Description: Initial database name.
+  MultiAz:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Keep a standby in another Availability Zone, which doubles instance cost.
+  EnableDeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Block database deletion until this is false.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC.
+
+Resources:
+  Network:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/networking/vpc.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcCidr: !Ref VpcCidr
+        NatMode: single
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Marks tasks that may reach the database.
+      VpcId: !GetAtt Network.Outputs.VpcId
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Database:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/database/rds-instance.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SubnetIds: !GetAtt Network.Outputs.IsolatedSubnetIds
+        Engine: !Ref Engine
+        InstanceClass: !Ref InstanceClass
+        DatabaseName: !Ref DatabaseName
+        MultiAz: !Ref MultiAz
+        EnableDeletionProtection: !Ref EnableDeletionProtection
+        SourceSecurityGroupId: !Ref AppSecurityGroup
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  ReadDatabaseSecretPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Read this blueprint's generated database credentials.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !GetAtt Database.Outputs.SecretArn
+
+  LoadBalancer:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/networking/load-balancer-alb.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SubnetIds: !GetAtt Network.Outputs.PublicSubnetIds
+        Scheme: internet-facing
+        AllowedCidr: !Ref AllowedCidr
+        CertificateArn: !Ref CertificateArn
+        TargetPort: !Ref ContainerPort
+        HealthCheckPath: !Ref HealthCheckPath
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/containers/ecs-cluster.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Service:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../templates/containers/ecs-fargate-service.yaml
+      Parameters:
+        ProjectName: !Ref ProjectName
+        Environment: !Ref Environment
+        ClusterName: !GetAtt Cluster.Outputs.ClusterName
+        Image: !Ref Image
+        ContainerPort: !Ref ContainerPort
+        DesiredCount: !Ref DesiredCount
+        VpcId: !GetAtt Network.Outputs.VpcId
+        SubnetIds: !GetAtt Network.Outputs.PrivateSubnetIds
+        SourceSecurityGroupId: !GetAtt LoadBalancer.Outputs.SecurityGroupId
+        AdditionalSecurityGroupId: !Ref AppSecurityGroup
+        TargetGroupArn: !GetAtt LoadBalancer.Outputs.TargetGroupArn
+        TaskPolicyArn: !Ref ReadDatabaseSecretPolicy
+        AppConfigValue: !GetAtt Database.Outputs.SecretArn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  LoadBalancerDnsName:
+    Description: Load balancer DNS name.
+    Value: !GetAtt LoadBalancer.Outputs.LoadBalancerDnsName
+    Export:
+      Name: !Sub '${AWS::StackName}-LoadBalancerDnsName'
+  DatabaseEndpoint:
+    Description: Database endpoint.
+    Value: !GetAtt Database.Outputs.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseEndpoint'
+  DatabaseSecretArn:
+    Description: Secret holding the generated credentials.
+    Value: !GetAtt Database.Outputs.SecretArn
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseSecretArn'
+  ServiceName:
+    Description: Service name.
+    Value: !GetAtt Service.Outputs.ServiceName
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceName'

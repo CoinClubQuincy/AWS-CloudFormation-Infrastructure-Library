@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: IAM role for GitHub Actions through OIDC, trusted only for one repository and branch.
+
+Metadata:
+  Library:
+    Domain: security
+    Summary: IAM role assumable by GitHub Actions through OIDC, trusted only for one repository and branch, with an optional account-wide OIDC provider.
+    Cost: IAM has no charge.
+    Prerequisites:
+      - Each account can have only one provider for this URL, so set CreateOidcProvider to false and pass ExistingProviderArn if it already exists.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: GitHub}
+        Parameters: [GitHubOwner, GitHubRepository, GitHubBranch]
+      - Label: {default: Provider}
+        Parameters: [CreateOidcProvider, ExistingProviderArn]
+      - Label: {default: Role}
+        Parameters: [ManagedPolicyArns, PermissionsBoundaryArn, MaxSessionSeconds]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  GitHubOwner:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9][A-Za-z0-9-]*$'
+    Description: GitHub user or organization. Wildcards are not accepted.
+  GitHubRepository:
+    Type: String
+    AllowedPattern: '^[A-Za-z0-9._-]+$'
+    Description: Repository name. Wildcards are not accepted.
+  GitHubBranch:
+    Type: String
+    Default: main
+    AllowedPattern: '^[A-Za-z0-9._/-]+$'
+    Description: Branch allowed to assume the role. Wildcards are not accepted.
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create the GitHub OIDC provider. Only one can exist per account.
+  ExistingProviderArn:
+    Type: String
+    Default: ''
+    Description: ARN of an existing GitHub OIDC provider, used when CreateOidcProvider is false.
+  ManagedPolicyArns:
+    Type: CommaDelimitedList
+    Description: Managed policies granting what the workflow needs. Keep these narrow.
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Optional permissions boundary policy ARN.
+  MaxSessionSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Maximum session duration.
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateOidcProvider, 'true']
+  HasBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
+
+Rules:
+  ExistingProviderRequired:
+    RuleCondition: !Equals [!Ref CreateOidcProvider, 'false']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ExistingProviderArn, '']]
+        AssertDescription: ExistingProviderArn is required when CreateOidcProvider is false.
+
+Resources:
+  OidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns: !Ref ManagedPolicyArns
+      PermissionsBoundary: !If [HasBoundary, !Ref PermissionsBoundaryArn, !Ref AWS::NoValue]
+      MaxSessionDuration: !Ref MaxSessionSeconds
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [CreateProvider, !Ref OidcProvider, !Ref ExistingProviderArn]
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubOwner}/${GitHubRepository}:ref:refs/heads/${GitHubBranch}'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  RoleArn:
+    Description: Role ARN for the configure-aws-credentials action.
+    Value: !GetAtt Role.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'

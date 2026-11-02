@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EKS cluster with a private API endpoint by default and access entries for authentication.
+
+Metadata:
+  Library:
+    Domain: containers
+    Summary: EKS cluster with a private API endpoint by default, access-entry authentication, selectable control plane logging and optional secrets encryption.
+    Cost: Bills hourly for the control plane whether or not anything runs on it. Extended-support Kubernetes versions cost several times more, so this template stays on standard support. Logs bill for ingestion and storage.
+    Prerequisites:
+      - Subnets in at least two Availability Zones. For a private endpoint, network access to the VPC.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Cluster}
+        Parameters: [KubernetesVersion, SubnetIds]
+      - Label: {default: API access}
+        Parameters: [EnablePublicEndpoint, PublicAccessCidrs]
+      - Label: {default: Security}
+        Parameters: [SecretsKmsKeyArn]
+      - Label: {default: Logging}
+        Parameters: [ControlPlaneLogging]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  KubernetesVersion:
+    Type: String
+    AllowedPattern: '^1\.[0-9]+$'
+    Description: Kubernetes version, such as 1.33. Choose a current version from the EKS documentation, since versions leave standard support over time.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets in at least two Availability Zones. Use private subnets.
+  EnablePublicEndpoint:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Expose the Kubernetes API publicly as well as privately.
+  PublicAccessCidrs:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: CIDRs allowed to reach a public endpoint. Required when EnablePublicEndpoint is true.
+  SecretsKmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional KMS key ARN for envelope encryption of Kubernetes secrets. This cannot be removed later.
+  ControlPlaneLogging:
+    Type: String
+    Default: none
+    AllowedValues: [none, audit, all]
+    Description: none sends no logs, audit sends api, audit and authenticator, and all adds controllerManager and scheduler.
+
+Conditions:
+  PublicEndpoint: !Equals [!Ref EnablePublicEndpoint, 'true']
+  HasKmsKey: !Not [!Equals [!Ref SecretsKmsKeyArn, '']]
+  LogAudit: !Not [!Equals [!Ref ControlPlaneLogging, none]]
+  LogAll: !Equals [!Ref ControlPlaneLogging, all]
+
+Rules:
+  PublicEndpointNeedsCidrs:
+    RuleCondition: !Equals [!Ref EnablePublicEndpoint, 'true']
+    Assertions:
+      - Assert: !Not [!Equals [!Join ['', !Ref PublicAccessCidrs], '']]
+        AssertDescription: PublicAccessCidrs is required when EnablePublicEndpoint is true.
+
+Resources:
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: eks.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonEKSClusterPolicy'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  Cluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Version: !Ref KubernetesVersion
+      RoleArn: !GetAtt ClusterRole.Arn
+      AccessConfig:
+        AuthenticationMode: API
+        BootstrapClusterCreatorAdminPermissions: true
+      UpgradePolicy:
+        SupportType: STANDARD
+      ResourcesVpcConfig:
+        SubnetIds: !Ref SubnetIds
+        EndpointPrivateAccess: true
+        EndpointPublicAccess: !If [PublicEndpoint, true, false]
+        PublicAccessCidrs: !If [PublicEndpoint, !Ref PublicAccessCidrs, !Ref AWS::NoValue]
+      EncryptionConfig: !If
+        - HasKmsKey
+        - - Provider: {KeyArn: !Ref SecretsKmsKeyArn}
+            Resources: [secrets]
+        - !Ref AWS::NoValue
+      Logging:
+        ClusterLogging:
+          EnabledTypes:
+            - !If [LogAudit, {Type: api}, !Ref AWS::NoValue]
+            - !If [LogAudit, {Type: audit}, !Ref AWS::NoValue]
+            - !If [LogAudit, {Type: authenticator}, !Ref AWS::NoValue]
+            - !If [LogAll, {Type: controllerManager}, !Ref AWS::NoValue]
+            - !If [LogAll, {Type: scheduler}, !Ref AWS::NoValue]
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  ClusterName:
+    Description: Cluster name.
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterName'
+  ClusterArn:
+    Description: Cluster ARN.
+    Value: !GetAtt Cluster.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterArn'
+  ClusterEndpoint:
+    Description: Kubernetes API endpoint.
+    Value: !GetAtt Cluster.Endpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterEndpoint'
+  ClusterSecurityGroupId:
+    Description: Security group EKS created for the cluster.
+    Value: !GetAtt Cluster.ClusterSecurityGroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-ClusterSecurityGroupId'
+  OidcIssuerUrl:
+    Description: OIDC issuer URL, used for IAM roles for service accounts.
+    Value: !GetAtt Cluster.OpenIdConnectIssuerUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-OidcIssuerUrl'
