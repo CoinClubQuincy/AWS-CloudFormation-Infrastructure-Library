@@ -1,0 +1,56 @@
+name: cfn-lint
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# The job only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Validate CloudFormation templates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pinned so a new cfn-lint release cannot change the result without a commit here.
+      - name: Install cfn-lint
+        run: pip install cfn-lint==1.59.0
+
+      # cfn-lint's exit code is a bitmask: 2 = errors, 4 = warnings, 8 = informational.
+      # Only 0, 4, 8 and 12 (warnings and/or informational) pass. Errors (2), a linter
+      # failure (1) or any other code fail the build, so a crash can never read as green.
+      - name: Lint (errors and linter failures block)
+        run: |
+          failed=0
+          files=$(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort)
+          [ -n "$files" ] || { echo "::error::no templates found"; exit 1; }
+          for f in $files; do
+            rc=0
+            out=$(cfn-lint "$f" 2>&1) || rc=$?
+            case $rc in
+              0|4|8|12) ;;
+              *)
+                echo "::error file=$f::cfn-lint exited $rc"
+                echo "$out"
+                failed=1
+                ;;
+            esac
+          done
+          exit $failed
+
+      - name: Warning report (non-blocking)
+        if: always()
+        run: |
+          for f in $(find . -path ./.github -prune -o \( -name '*.yaml' -o -name '*.yml' \) -print | sort); do
+            out=$(cfn-lint "$f" 2>&1) || true
+            echo "$out" | grep '^W[0-9]' | sed "s|^|$f: |" || true
+          done

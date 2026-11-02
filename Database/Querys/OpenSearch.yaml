@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Amazon OpenSearch Service domain. Replaces the former Elasticsearch template:
+  the service was renamed to OpenSearch Service and AWS::Elasticsearch::Domain is
+  superseded by AWS::OpenSearchService::Domain. Encrypted at rest and in transit,
+  never open to the public internet.
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Name of the OpenSearch domain. Lowercase letters, numbers and hyphens.
+    AllowedPattern: '[a-z][a-z0-9-]{2,27}'
+
+  EngineVersion:
+    Type: String
+    Default: OpenSearch_2.13
+    Description: Engine version, for example OpenSearch_2.13.
+
+  InstanceType:
+    Type: String
+    Default: t3.small.search
+    AllowedValues:
+      - t3.small.search
+      - t3.medium.search
+      - m6g.large.search
+      - r6g.large.search
+
+  InstanceCount:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 20
+
+  VolumeSizeGB:
+    Type: Number
+    Default: 20
+    MinValue: 10
+    MaxValue: 1024
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets for the domain. Use one subnet per availability zone.
+
+  SecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: Security groups permitted to reach the domain on 443.
+
+  ENVTag:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, stage, prod]
+
+Conditions:
+  IsMultiAZ: !Not [!Equals [!Ref InstanceCount, 1]]
+
+Resources:
+
+  Domain:
+    Type: AWS::OpenSearchService::Domain
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DomainName: !Ref DomainName
+      EngineVersion: !Ref EngineVersion
+
+      ClusterConfig:
+        InstanceType: !Ref InstanceType
+        InstanceCount: !Ref InstanceCount
+        ZoneAwarenessEnabled: !If [IsMultiAZ, true, false]
+
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref VolumeSizeGB
+
+      # A domain inside a VPC is unreachable from the public internet by design.
+      VPCOptions:
+        SubnetIds: !Ref SubnetIds
+        SecurityGroupIds: !Ref SecurityGroupIds
+
+      EncryptionAtRestOptions:
+        Enabled: true
+
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: Policy-Min-TLS-1-2-2019-07
+
+      SoftwareUpdateOptions:
+        AutoSoftwareUpdateEnabled: true
+
+      Tags:
+        - Key: ENV
+          Value: !Ref ENVTag
+        - Key: Stack
+          Value: !Ref AWS::StackName
+
+Outputs:
+  DomainEndpoint:
+    Description: VPC endpoint of the OpenSearch domain.
+    Value: !GetAtt Domain.DomainEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainEndpoint'
+
+  DomainArn:
+    Description: ARN of the OpenSearch domain.
+    Value: !GetAtt Domain.Arn

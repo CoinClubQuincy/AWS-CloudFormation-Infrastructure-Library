@@ -1,9 +1,40 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CodeCommit and ECR repositories and a CodePipeline that runs CodeCommit
+  (master branch), then CodeDeploy. There is no build stage: images are pushed
+  to the ECR repository outside the pipeline. The deployment group uses
+  CodeDeployDefault.OneAtATime, an EC2/on-premises configuration, and has no
+  targets. No Lambda function is created.
 Parameters:
   ResourceName:
     Type: String
-    Description: The base name for the resources
+    Description: >-
+      Base name for the resources. Lowercase letters, digits and hyphens only,
+      because it is part of the ECR repository name.
+    AllowedPattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+    MaxLength: 64
+    ConstraintDescription: >-
+      lowercase letters, digits and single hyphens (not at the start or end),
+      at most 64 characters.
 Resources:
+
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
   CodeCommitRepo:
     Type: AWS::CodeCommit::Repository
     Properties:
@@ -12,57 +43,7 @@ Resources:
   ECRRepo:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${ResourceName}-ECRRepo
-
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${ResourceName}-MyCodeBuild
-      Source:
-        Type: CODECOMMIT
-        Location: !Sub https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${CodeCommitRepo}
-      Artifacts:
-        Type: NO_ARTIFACTS
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/docker:17.09.0
-        PrivilegedMode: true
-        EnvironmentVariables:
-          - Name: REPOSITORY_URI
-            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepo}
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-
-  CodeBuildServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: !Sub ${ResourceName}-CodeBuildPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:GetRepositoryPolicy
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                  - ecr:DescribeImages
-                  - ecr:BatchGetImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                  - ecr:PutImage
-                Resource: '*'
+      RepositoryName: !Sub ${ResourceName}-ecr
 
   CodeDeployApplication:
     Type: AWS::CodeDeploy::Application
@@ -93,22 +74,16 @@ Resources:
             Principal:
               Service: codedeploy.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: !Sub ${ResourceName}-CodeDeployPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - autoscaling:*
-                  - ec2:*
-                  - s3:*
-                Resource: '*'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSCodeDeployRole'
 
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactBucket
       Stages:
         - Name: Source
           Actions:
@@ -121,21 +96,8 @@ Resources:
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
-                RepositoryName: !Ref CodeCommitRepo
+                RepositoryName: !GetAtt CodeCommitRepo.Name
                 BranchName: master
-              RunOrder: 1
-        - Name: Build
-          Actions:
-            - Name: Build
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: 1
-              InputArtifacts:
-                - Name: SourceOutput
-              Configuration:
-                ProjectName: !Ref CodeBuildProject
               RunOrder: 1
         - Name: Deploy
           Actions:
@@ -169,8 +131,42 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - codecommit:*
-                  - codebuild:*
-                  - ecr:*
-                  - codedeploy:*
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource: !GetAtt PipelineArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub '${PipelineArtifactBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Resource: !GetAtt CodeCommitRepo.Arn
+              - Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:ListDeployments
+                  - codedeploy:ListDeploymentGroups
+                  - codedeploy:RegisterApplicationRevision
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${CodeDeployApplication}'
+                  - !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${CodeDeployApplication}/${CodeDeployDeploymentGroup}'
+              - Effect: Allow
+                Action: codedeploy:GetDeploymentConfig
+                Resource: !Sub 'arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*'
+              - Effect: Allow
+                Action: codedeploy:ListDeploymentConfigs
                 Resource: '*'

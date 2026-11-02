@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB table with a configurable partition and sort key.
 Parameters:
   PrimaryKey:
     Type: String

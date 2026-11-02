@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Reusable IAM building blocks: a service role assumable by a chosen AWS service,
+  an optional EC2 instance profile, and a customer-managed policy scoped to one
+  S3 prefix. Written least-privilege by default rather than with wildcard actions.
+
+Parameters:
+  RoleName:
+    Type: String
+    Description: Name for the service role.
+    MinLength: 1
+    MaxLength: 64
+    AllowedPattern: '[\w+=,.@-]+'
+
+  ServicePrincipal:
+    Type: String
+    Description: AWS service allowed to assume this role.
+    Default: ec2.amazonaws.com
+    AllowedValues:
+      - ec2.amazonaws.com
+      - lambda.amazonaws.com
+      - ecs-tasks.amazonaws.com
+      - codepipeline.amazonaws.com
+
+  ScopedBucketName:
+    Type: String
+    Description: Bucket the role may read and write within (objects only, no bucket-level deletes).
+
+  ScopedPrefix:
+    Type: String
+    Description: Key prefix inside the bucket the role is limited to.
+    Default: 'app/'
+
+  CreateInstanceProfile:
+    Type: String
+    Description: Create an EC2 instance profile for this role.
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  ENVTag:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, stage, prod]
+
+Conditions:
+  WantsInstanceProfile: !Equals [!Ref CreateInstanceProfile, 'true']
+
+Resources:
+
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: !Ref ServicePrincipal
+            Action: sts:AssumeRole
+      Description: !Sub 'Service role for ${ServicePrincipal} in ${AWS::StackName}'
+      Tags:
+        - Key: ENV
+          Value: !Ref ENVTag
+        - Key: Stack
+          Value: !Ref AWS::StackName
+
+  ScopedS3Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: !Sub 'Read/write access limited to s3://${ScopedBucketName}/${ScopedPrefix}*'
+      Roles:
+        - !Ref ServiceRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ListOnlyTheScopedPrefix
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ScopedBucketName}'
+            Condition:
+              StringLike:
+                's3:prefix':
+                  - !Sub '${ScopedPrefix}*'
+          - Sid: ObjectAccessWithinPrefix
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${ScopedBucketName}/${ScopedPrefix}*'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: WantsInstanceProfile
+    Properties:
+      Roles:
+        - !Ref ServiceRole
+
+Outputs:
+  RoleArn:
+    Description: ARN of the service role.
+    Value: !GetAtt ServiceRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+
+  RoleNameOut:
+    Description: Name of the service role.
+    Value: !Ref ServiceRole
+
+  InstanceProfileArn:
+    Description: ARN of the instance profile, when created.
+    Condition: WantsInstanceProfile
+    Value: !GetAtt InstanceProfile.Arn

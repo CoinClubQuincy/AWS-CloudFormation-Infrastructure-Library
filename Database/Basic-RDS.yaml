@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS instance inside a VPC with a parameterised engine and size.
 ####  Notes
 ####  1.When launching RDS to connect you must specify 1 IP in RDS Security Groups
 ####  2.Enable Public accessibility in modify section
@@ -11,27 +13,33 @@ Parameters:
       - MySQL
       - MariaDB
       - postgres
-      - Oracle
-      - SQL Server
-      - Amazon Aurora
-    Description: Select Database Type
+      - oracle-se2
+      - sqlserver-ex
+    Description: >-
+      RDS engine. oracle-se2 is Oracle Standard Edition Two and sqlserver-ex is
+      SQL Server Express. Aurora is not offered because it needs an
+      AWS::RDS::DBCluster, which this template does not create.
 
   PrivateIP:
     Type: String
-    Description: private IP for RDS connection
+    Description: >-
+      CIDR range allowed to reach the database ports (1521, 3306, 1433 and
+      5432), for example 10.0.0.0/16. There is no default.
+    AllowedPattern: '^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$'
+    ConstraintDescription: must be an IPv4 CIDR block such as 10.0.0.0/16.
 
   AllocatedStorages:
     Type: String
-    Default: "10"
+    Default: "20"
     AllowedValues:
-      - "10"
+      - "20"
       - "50"
       - "100"
       - "400"
       - "600"
       - "800"
       - "1000"
-    Description: Label Enviroment Tag
+    Description: Allocated storage in GiB (gp2 and gp3 need at least 20)
 
   AZ:
     Type: String
@@ -40,7 +48,10 @@ Parameters:
       - A
       - B
       - C
-    Description: Choose AZ
+    Description: >-
+      Availability Zone for a Single-AZ instance. A, B and C are the first,
+      second and third zones that Fn::GetAZs returns for the region. Pick the
+      zone of Subnet1 or Subnet2. Ignored when MultiAZs is true.
 
   InstanceTypeParameter:
     Type: String
@@ -83,11 +94,10 @@ Parameters:
 
   DBUsername:
     Type: String
-    Description: Set Username
-
-  DBPass:
-    Type: String
-    Description: NEEDS TO BE 8 DIGITS LONG
+    Description: >
+      Master user name. There is no password parameter: RDS generates the
+      master password and stores it in Secrets Manager (see the DBSecretArn
+      output).
 
   MultiAZs:
     Type: String
@@ -95,7 +105,9 @@ Parameters:
     AllowedValues:
       - false
       - true
-    Description: Choose Multi AZ
+    Description: >-
+      Create a Multi-AZ deployment. RDS then chooses the zones, so the AZ
+      parameter is ignored. SQL Server Express does not support Multi-AZ.
 
   PublicDB:
     Type: String
@@ -103,24 +115,27 @@ Parameters:
     AllowedValues:
       - false
       - true
-    Description: Choose Multi AZ
+    Description: Give the instance a publicly resolvable endpoint
 
   DBEncryption:
     Type: String
-    Default: false
+    Default: true
     AllowedValues:
       - false
       - true
-    Description: Choose encryption
+    Description: >-
+      Encrypt the DB storage with the aws/rds KMS key. Changing this replaces
+      the DB instance, so a stack created with false must keep false.
 
   StorageType:
     Type: String
-    Default: standard
+    Default: gp3
     AllowedValues:
-      - standard
+      - gp3
       - gp2
-      - io1
-    Description: Choose encryption
+    Description: >-
+      Storage type. Magnetic (standard) storage can no longer be used for new
+      DB instances, and io1 needs an Iops value that this template does not set.
 
   ENVTag:
     Type: String
@@ -141,126 +156,50 @@ Parameters:
     Description: Label ProjectTag
 
 Mappings:
-  RegionMap:
-##--------------------------(N. Virginia)--------------------------
-    us-east-1:
-      A: us-east-1a
-      B: us-east-1b
-      C: us-east-1c
-      D: us-east-1d
-      E: us-east-1e
-      F: us-east-1f
-##--------------------------(N. California)--------------------------
-    us-west-1:
-      A: us-west-1a
-      B: us-west-1b
-      C: us-west-1c
-##--------------------------(Oregon)--------------------------
-    us-west-2:
-      A: us-west-2a
-      B: us-west-2b
-      C: us-west-2c
-      D: us-west-2d
-##--------------------------(Ireland)--------------------------
-    eu-west-1:
-      A: eu-west-1a
-      B: eu-west-1b
-      C: eu-west-1c
-##--------------------------(Tokyo)--------------------------
-    ap-northeast-1:
-      A: eu-west-1a
-      B: eu-west-1b
-      C: eu-west-1c
-##--------------------------(Singapore)--------------------------
-    ap-southeast-1:
-      A: ap-southeast-1a
-      B: ap-southeast-1b
-      C: ap-southeast-1c
-##--------------------------(Sydney)--------------------------
-    ap-southeast-2:
-      A: ap-southeast-2a
-      B: ap-southeast-2b
-      C: ap-southeast-2c
-##--------------------------(São Paulo)--------------------------
-    sa-east-1:
-      A: sa-east-1a
-      B: sa-east-1b
-      C: sa-east-1c
-##--------------------------(Frankfurt)--------------------------
-    eu-central-1:
-      A: eu-central-1a
-      B: eu-central-1b
-      C: eu-central-1a
-##--------------------------(Hong Kong)--------------------------
-    ap-east-1:
-      A: ap-east-1a
-      B: ap-east-1b
-      C: ap-east-1c
-##--------------------------(Mumbai)--------------------------
-    ap-south-1:
-      A: ap-south-1a
-      B: ap-south-1b
-      C: ap-south-1c
-##--------------------------(Seoul)--------------------------
-    ap-northeast-2:
-      A: ap-northeast-2a
-      B: ap-northeast-2b
-      C: ap-northeast-2c
-##--------------------------(Canada)--------------------------
-    ca-central-1:
-      A: ca-central-1a
-      B: ca-central-1b
-      C: ca-central-1a
-##--------------------------(London)--------------------------
-    eu-west-2:
-      A: eu-west-2a
-      B: eu-west-2b
-      C: eu-west-2c
-##--------------------------(Paris)--------------------------
-    eu-west-3:
-      A: eu-west-3a
-      B: eu-west-3b
-      C: eu-west-3c
-##--------------------------(Stockholm)--------------------------
-    eu-north-1:
-      A: eu-north-1a
-      B: eu-north-1b
-      C: eu-north-1c
-##--------------------------(Middle East)--------------------------
-    me-south-1:
-      A: me-south-1a
-      B: me-south-1b
-      C: me-south-1c
-##--------------------------(Ohio)--------------------------
-    us-east-2:
-      A: us-east-2a
-      B: us-east-2b
-      C: us-east-2c
+  AZIndex:
+    A:
+      Index: 0
+    B:
+      Index: 1
+    C:
+      Index: 2
+
+Conditions:
+  IsMultiAZ: !Equals [!Ref MultiAZs, 'true']
+  OmitDBName: !Or
+    - !Equals [!Ref DB, oracle-se2]
+    - !Equals [!Ref DB, sqlserver-ex]
 
 Resources:
   RDS:
     Type: AWS::RDS::DBInstance
+    # Keep a final snapshot if the stack deletes or replaces the instance.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       AllocatedStorage:
         Ref: AllocatedStorages
       AllowMajorVersionUpgrade: True
       AutoMinorVersionUpgrade: True
-      AvailabilityZone: !FindInMap [RegionMap, !Ref "AWS::Region", !Ref AZ]
+      AvailabilityZone: !If
+        - IsMultiAZ
+        - !Ref AWS::NoValue
+        - !Select [!FindInMap [AZIndex, !Ref AZ, Index], !GetAZs '']
       BackupRetentionPeriod: 30
       CopyTagsToSnapshot: True
       DBInstanceClass: !Ref InstanceTypeParameter
       DBInstanceIdentifier:
         Ref: AWS::StackName
-      DBName:
-        Ref: AWS::StackName
+      # SQL Server requires DBName to be null, and an Oracle SID is at most
+      # 8 characters, so those engines keep their defaults.
+      DBName: !If [OmitDBName, !Ref AWS::NoValue, !Ref AWS::StackName]
       DeleteAutomatedBackups: True
       DeletionProtection: True
       Engine:
         Ref: DB
       MasterUsername:
         Ref: DBUsername
-      MasterUserPassword:
-        Ref: DBPass
+      ManageMasterUserPassword: true
       MultiAZ:
         Ref: MultiAZs
       PubliclyAccessible:
@@ -347,3 +286,11 @@ Resources:
         - Key: Project
           Value:
             Ref: ProjectTag
+
+Outputs:
+  DBSecretArn:
+    Description: >
+      ARN of the Secrets Manager secret in which RDS stores the generated master
+      user name and password. Read it with
+      aws secretsmanager get-secret-value --secret-id <this ARN>.
+    Value: !GetAtt RDS.MasterUserSecret.SecretArn

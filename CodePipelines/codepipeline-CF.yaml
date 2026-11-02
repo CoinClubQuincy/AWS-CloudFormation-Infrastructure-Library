@@ -1,3 +1,5 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodePipeline that deploys a CloudFormation stack through a change set, with a manual approval gate between test and production.
 ##--------------------------[Cloudformation Pipeline]--------------------------
 Parameters:
   PipelineName:
@@ -163,7 +165,7 @@ Resources:
                 Version: '1'
               Configuration:
                 NotificationArn: !Ref CodePipelineSNSTopic
-                CustomData: !Sub 'A new change set was created for the ${ProdStackName} stack. Do you want to implement the changes?"
+                CustomData: !Sub 'A new change set was created for the ${ProdStackName} stack. Do you want to implement the changes?'
               RunOrder: '2'
             - Name: ExecuteChangeSet
               ActionTypeId:
@@ -188,7 +190,6 @@ Resources:
                 RoleArn: !GetAtt [CFNRole, Arn]
                 StackName: !Ref TestStackName
               RunOrder: '3'
-              OnFailure: Abort
 
   CFNRole:
     Type: AWS::IAM::Role
