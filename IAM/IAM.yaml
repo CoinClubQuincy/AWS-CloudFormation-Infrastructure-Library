@@ -58,7 +58,6 @@ Resources:
             Principal:
               Service: !Ref ServicePrincipal
             Action: sts:AssumeRole
-      # Confused-deputy protection for service principals that support it.
       Description: !Sub 'Service role for ${ServicePrincipal} in ${AWS::StackName}'
       Tags:
         - Key: ENV

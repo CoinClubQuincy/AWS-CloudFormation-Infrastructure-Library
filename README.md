@@ -82,7 +82,17 @@ when it deletes the DB instance.
 - **`codepipeline-CF.yaml`** reads its source from an existing S3 bucket
   (`S3Bucket`) in the same region. Versioning must be enabled on that bucket,
   and it must contain the `SourceS3Key` ZIP (default
-  `wordpress-single-instance.zip`).
+  `wordpress-single-instance.zip`). Its roles are broad and incomplete: the
+  pipeline role grants `iam:PassRole`, CloudFormation stack and change-set
+  actions, `s3:GetObject`/`s3:PutObject` and `sns:Publish` on `*`, and lacks
+  the S3 source permissions AWS documents (`s3:GetObjectVersion`,
+  `s3:GetBucketVersioning`, `s3:GetBucketAcl`, `s3:GetBucketLocation`). The
+  CloudFormation role can only describe EC2, so a source template that creates
+  EC2 resources, such as the default WordPress sample, fails. Scope and extend
+  both roles before using it.
+- **`codepipeline-codecommit.yaml`** passes no parameter overrides to its
+  deploy action, so it can deploy only templates whose parameters all have
+  defaults.
 - **Existing resources.** Templates with VPC, subnet, key pair, security group
   or topic parameters expect those resources to exist already.
   `VPC/VPC.yaml` can create the network.
@@ -98,6 +108,25 @@ when it deletes the DB instance.
   the NAT gateway and Elastic IP are billed without being used. To give a
   private subnet egress, add a `0.0.0.0/0` route to `NatGateway` in that
   subnet's route table. Otherwise, remove the NAT resources from your copy.
+- **VPC addressing.** `VPC/VPC.yaml` creates its nine subnets with fixed
+  `10.0.x.0/26` CIDRs, so `vpcsize` must be a block that contains them (the
+  default `10.0.0.0/16` does). DNS support and DNS hostnames are off.
+- **Deletion.** `Database/Basic-DynamoDB.yaml`, `Transit-Notify/Kinesis.yaml`,
+  `Transit-Notify/SQS.yaml` and the queues in `Transit-Notify/SNS-Sub.yaml` set
+  no `DeletionPolicy`, so deleting the stack deletes the table, stream or queues
+  and their data. Only the RDS instances keep a final snapshot.
+- **RDS port.** Both RDS templates set `Port` to 3306 whatever the engine, so
+  PostgreSQL, Oracle and SQL Server instances listen on 3306 rather than their
+  usual ports.
+- **`S3/S3-Website.yaml`** makes the bucket world-readable through a bucket
+  policy. If S3 Block Public Access is on for the account, the stack fails until
+  it is turned off.
+- **`Transit-Notify/SNS-Sub.yaml` with `Protocol=lambda`** creates no
+  `AWS::Lambda::Permission`. The function's resource policy must already allow
+  `sns.amazonaws.com` to invoke it.
+- **`CodePipelines/Repos/CodeCommit.yaml`** sends repository events to SNS only
+  for a branch named `Master` (capital M). Change `Branches` if your branch is
+  named differently.
 
 ## Templates
 
