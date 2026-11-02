@@ -83,10 +83,12 @@ Resources:
                   - 's3:GetObject'
                   - 's3:GetObjectVersion'
                   - 's3:PutObject'
+                  - 's3:PutObjectAcl'
                 Resource: !Sub '${MyArtifactStoreBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - 's3:GetBucketVersioning'
+                  - 's3:GetBucketAcl'
                   - 's3:GetBucketLocation'
                 Resource: !GetAtt MyArtifactStoreBucket.Arn
               - Effect: Allow
@@ -104,11 +106,18 @@ Resources:
                   - 'cloudformation:UpdateStack'
                   - 'cloudformation:DeleteStack'
                   - 'cloudformation:DescribeStacks'
+                  - 'cloudformation:DescribeStackEvents'
+                  - 'cloudformation:DescribeStackResources'
+                  - 'cloudformation:GetTemplate'
                   - 'cloudformation:CreateChangeSet'
                   - 'cloudformation:DescribeChangeSet'
                   - 'cloudformation:ExecuteChangeSet'
                   - 'cloudformation:DeleteChangeSet'
                 Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${DeployStackName}/*'
+              # ValidateTemplate has no resource-level permissions, so it needs Resource '*'.
+              - Effect: Allow
+                Action: 'cloudformation:ValidateTemplate'
+                Resource: '*'
               - Effect: Allow
                 Action: 'iam:PassRole'
                 Resource: !GetAtt CloudFormationDeployRole.Arn
