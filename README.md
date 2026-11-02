@@ -1,12 +1,27 @@
+<div align="center">
+
+<img src=".github/assets/banner.svg" alt="AWS CloudFormation Infrastructure Library: 59 templates, 11 domains, 5 blueprints" width="100%">
+
 # AWS CloudFormation Infrastructure Library
 
-Plain CloudFormation building blocks for the major AWS services, plus blueprints that combine them
-into complete stacks. There are no transforms, macros or custom resources, so nothing needs helper
-code to deploy.
+**Plain CloudFormation building blocks for the major AWS services, and blueprints that combine them into complete stacks.**
 
-- **59 templates** across 11 domains, listed with their cost notes in the [catalog](docs/CATALOG.md)
-- **5 blueprints** composed from those templates as nested stacks
-- Encrypted, private and tagged by default, with no secrets passed as parameters
+<a href="https://github.com/CoinClubQuincy/AWS-CloudFormation-Infrastructure-Library/actions/workflows/cfn-lint.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/CoinClubQuincy/AWS-CloudFormation-Infrastructure-Library/cfn-lint.yml?branch=master&style=flat-square&label=CI"></a>
+<a href="LICENSE"><img alt="license: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-3b82f6?style=flat-square"></a>
+<img alt="CloudFormation: plain YAML" src="https://img.shields.io/badge/CloudFormation-plain_YAML-f97316?style=flat-square">
+<img alt="checks: cfn-lint and Checkov" src="https://img.shields.io/badge/checks-cfn--lint_and_Checkov-16a34a?style=flat-square">
+
+[What is included](#what-is-included) · [Deploy one template](#deploy-one-template) · [Deploy a blueprint](#deploy-a-blueprint) · [Catalog](docs/CATALOG.md) · [Conventions](docs/CONVENTIONS.md)
+
+</div>
+
+| 59 templates | 11 domains | 5 blueprints | 0 custom resources |
+|:---:|:---:|:---:|:---:|
+| Each one stands alone | From networking to analytics | Nested stacks, ready to package | No transforms, macros or helper code |
+
+- **Safe defaults.** Encrypted, private and tagged, with no secrets passed as parameters.
+- **Cost is written down.** The [catalog](docs/CATALOG.md) says what each template bills while idle.
+- **Composable.** Stacks publish their outputs as exports, and blueprints wire templates together by relative path.
 
 > [!IMPORTANT]
 > Every template passes `cfn-lint`, a convention checker and a Checkov scan, but **these checks read
@@ -36,6 +51,19 @@ code to deploy.
 | [`container-service`](blueprints/container-service.yaml) | New VPC, HTTPS load balancer and a Fargate service |
 | [`three-tier-web`](blueprints/three-tier-web.yaml) | Load balancer, Fargate service and an RDS database in isolated subnets |
 | [`data-lake`](blueprints/data-lake.yaml) | S3 fed by Firehose, cataloged by Glue and queried with Athena |
+
+### How a blueprint fits together
+
+`three-tier-web` is a parent stack that nests five templates from this library:
+
+```mermaid
+flowchart TD
+    B["blueprints/three-tier-web.yaml"] --> V["networking/vpc"]
+    B --> D["database/rds-instance"]
+    B --> L["networking/load-balancer-alb"]
+    B --> C["containers/ecs-cluster"]
+    B --> S["containers/ecs-fargate-service"]
+```
 
 ## Deploy one template
 
@@ -87,7 +115,7 @@ CI runs all of these on every pull request, and any finding fails the build:
 | `cfn-lint` | Templates match the CloudFormation schema, with warnings blocking |
 | [`scripts/check_library.py`](scripts/check_library.py) | Library rules: tags, data protection, no secrets, no hardcoded IDs, least-privilege IAM, restricted ingress, and that blueprints reference real parameters and outputs |
 | [`scripts/test_checker.py`](scripts/test_checker.py) | The checker itself catches defects, using deliberately broken templates |
-| Checkov | Security scan. Each skipped check has a written reason in [`docs/SECURITY-SCAN.md`](docs/SECURITY-SCAN.md) |
+| Checkov | Security scan: **337 passed, 0 failed, 26 skipped**. Each skipped check has a written reason in [`docs/SECURITY-SCAN.md`](docs/SECURITY-SCAN.md) |
 
 Run them locally:
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="AWS CloudFormation Infrastructure Library: 59 templates, 11 domains, 5 blueprints">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#15110b"/><stop offset="1" stop-color="#2a1a0c"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fbbf24"/><stop offset="1" stop-color="#f97316"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity=".03"/></pattern>
+  </defs>
+  <rect width="1280" height="360" rx="16" fill="url(#bg)"/>
+  <rect width="1280" height="360" rx="16" fill="url(#grid)"/>
+  <text x="64" y="104" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="27" font-weight="600" fill="#fbbf24" letter-spacing=".5">AWS CloudFormation</text>
+  <text x="64" y="172" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="62" font-weight="800" fill="#fafaf9" letter-spacing="-1.5">Infrastructure Library</text>
+  <rect x="66" y="194" width="96" height="5" rx="2.5" fill="url(#accent)"/>
+  <text x="64" y="242" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="24" font-weight="500" fill="#e7e5e4">Plain templates for the major services.</text>
+  <text x="64" y="274" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="24" font-weight="500" fill="#e7e5e4">No transforms, macros or custom resources.</text>
+  <text x="64" y="316" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#a8a29e"><tspan fill="#fbbf24">59</tspan> templates<tspan fill="#57534e">   |   </tspan><tspan fill="#fbbf24">11</tspan> domains<tspan fill="#57534e">   |   </tspan><tspan fill="#fbbf24">5</tspan> blueprints</text>
+
+  <!-- Nested stack plates, bottom to top -->
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" font-weight="600" text-anchor="middle">
+    <g transform="translate(1000 268)"><path d="M0 -44L176 0L0 44L-176 0Z" fill="#431407" stroke="#9a3412"/><path d="M-176 0V14L0 58L176 14V0L0 44Z" fill="#2a0f05" stroke="#9a3412"/></g>
+    <g transform="translate(1000 214)"><path d="M0 -44L176 0L0 44L-176 0Z" fill="#7c2d12" stroke="#c2410c"/><path d="M-176 0V14L0 58L176 14V0L0 44Z" fill="#431407" stroke="#c2410c"/></g>
+    <g transform="translate(1000 160)"><path d="M0 -44L176 0L0 44L-176 0Z" fill="#b45309" stroke="#d97706"/><path d="M-176 0V14L0 58L176 14V0L0 44Z" fill="#78350f" stroke="#d97706"/></g>
+    <g transform="translate(1000 106)"><path d="M0 -44L176 0L0 44L-176 0Z" fill="#fbbf24" stroke="#fde68a"/><path d="M-176 0V14L0 58L176 14V0L0 44Z" fill="#b45309" stroke="#fde68a"/><text y="6" fill="#451a03">blueprint</text></g>
+    <g fill="#fed7aa" text-anchor="start" font-weight="500">
+      <path d="M1176 174H1196" stroke="#d97706"/><text x="1202" y="179">app</text>
+      <path d="M1176 228H1196" stroke="#c2410c"/><text x="1202" y="233">data</text>
+      <path d="M1176 282H1196" stroke="#9a3412"/><text x="1202" y="287">network</text>
+    </g>
+  </g>
+</svg>
