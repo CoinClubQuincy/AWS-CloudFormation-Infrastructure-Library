@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private, encrypted S3 bucket with versioning, TLS-only access and cost-saving lifecycle rules.
+
+Metadata:
+  Library:
+    Domain: storage
+    Summary: Private encrypted S3 bucket with versioning, a TLS-only policy and lifecycle rules.
+    Cost: No idle charge beyond storage. Storage and requests bill by use, and retained noncurrent versions count as storage.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Bucket}
+        Parameters: [KmsKeyArn, NoncurrentVersionExpirationDays, IntelligentTieringDays, AccessLogBucketName]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  KmsKeyArn:
+    Type: String
+    Default: ''
+    Description: Optional KMS key ARN. Leave empty to use SSE-S3, which has no key charge.
+  NoncurrentVersionExpirationDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: Days to keep noncurrent object versions before deleting them.
+  IntelligentTieringDays:
+    Type: Number
+    Default: 30
+    MinValue: 0
+    Description: Days before objects move to Intelligent-Tiering. Objects under 128 KB are not auto-tiered.
+  AccessLogBucketName:
+    Type: String
+    Default: ''
+    Description: Optional existing bucket that receives server access logs.
+
+Conditions:
+  UseKms: !Not [!Equals [!Ref KmsKeyArn, '']]
+  UseAccessLogs: !Not [!Equals [!Ref AccessLogBucketName, '']]
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: !If [UseKms, true, !Ref AWS::NoValue]
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: !If [UseKms, aws:kms, AES256]
+              KMSMasterKeyID: !If [UseKms, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LoggingConfiguration: !If
+        - UseAccessLogs
+        - DestinationBucketName: !Ref AccessLogBucketName
+          LogFilePrefix: !Sub '${AWS::StackName}/'
+        - !Ref AWS::NoValue
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNoncurrentVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref NoncurrentVersionExpirationDays
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: TierCurrentVersions
+            Status: Enabled
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: !Ref IntelligentTieringDays
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  BucketName:
+    Description: Bucket name.
+    Value: !Ref Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  BucketArn:
+    Description: Bucket ARN.
+    Value: !GetAtt Bucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketArn'
+  BucketRegionalDomainName:
+    Description: Regional domain name, for example as a CloudFront origin.
+    Value: !GetAtt Bucket.RegionalDomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketRegionalDomainName'

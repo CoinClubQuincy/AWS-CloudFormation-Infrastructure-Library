@@ -1,0 +1,544 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC with public, private and isolated subnets across two or three Availability Zones, optional NAT and flow logs.
+
+Metadata:
+  Library:
+    Domain: networking
+    Summary: VPC with public, private and isolated subnets in 2 or 3 AZs, selectable NAT, free S3 and DynamoDB gateway endpoints, and optional flow logs.
+    Cost: No idle charge with the default NatMode of none. Each NAT gateway bills hourly plus per GB, and public IPv4 addresses bill hourly. Flow logs bill for ingestion and storage.
+    Prerequisites: []
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Identity}
+        Parameters: [ProjectName, Environment]
+      - Label: {default: Network}
+        Parameters: [VpcCidr, SubnetCidrBits, AzCount, NatMode]
+      - Label: {default: Logging}
+        Parameters: [EnableFlowLogs, FlowLogRetentionDays]
+
+Parameters:
+  ProjectName:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project name, used for tags. Lowercase letters, digits and hyphens.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, test, prod]
+    Description: Deployment environment, used for tags.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(1[6-9]|2[0-4])$'
+    Description: VPC CIDR block, /16 to /24. It must hold nine subnets of the size SubnetCidrBits sets.
+  SubnetCidrBits:
+    Type: Number
+    Default: 8
+    MinValue: 4
+    MaxValue: 12
+    Description: Host bits per subnet. 8 gives a /24 (251 usable addresses).
+  AzCount:
+    Type: String
+    Default: '2'
+    AllowedValues: ['2', '3']
+    Description: Number of Availability Zones.
+  NatMode:
+    Type: String
+    Default: none
+    AllowedValues: [none, single, per-az]
+    Description: none leaves private subnets without internet egress. single is cheaper but one AZ failure cuts egress. per-az is the most resilient and costs the most.
+  EnableFlowLogs:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Send VPC flow logs to CloudWatch Logs.
+  FlowLogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: Days to keep flow logs.
+
+Conditions:
+  ThreeAz: !Equals [!Ref AzCount, '3']
+  AnyNat: !Not [!Equals [!Ref NatMode, none]]
+  PerAzNat: !Equals [!Ref NatMode, per-az]
+  ThirdNat: !And [!Condition ThreeAz, !Condition PerAzNat]
+  ThreeAzAnyNat: !And [!Condition ThreeAz, !Condition AnyNat]
+  FlowLogs: !Equals [!Ref EnableFlowLogs, 'true']
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - {Key: Name, Value: !Ref AWS::StackName}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - {Key: Name, Value: !Ref AWS::StackName}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-public'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  IsolatedRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-isolated'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  # Availability Zone 1
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-public-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  IsolatedSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [6, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-isolated-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  IsolatedSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref IsolatedSubnet1
+      RouteTableId: !Ref IsolatedRouteTable
+
+  # Availability Zone 2
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-public-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  IsolatedSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [7, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-isolated-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  IsolatedSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref IsolatedSubnet2
+      RouteTableId: !Ref IsolatedRouteTable
+
+  # Availability Zone 3
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: ThreeAz
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-public-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PublicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: ThreeAz
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: ThreeAz
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: ThreeAz
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-private-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: ThreeAz
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable3
+
+  IsolatedSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: ThreeAz
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !Select [8, !Cidr [!Ref VpcCidr, 9, !Ref SubnetCidrBits]]
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-isolated-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  IsolatedSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: ThreeAz
+    Properties:
+      SubnetId: !Ref IsolatedSubnet3
+      RouteTableId: !Ref IsolatedRouteTable
+
+  NatEip1:
+    Type: AWS::EC2::EIP
+    Condition: AnyNat
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Condition: AnyNat
+    Properties:
+      AllocationId: !GetAtt NatEip1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-1'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NatEip2:
+    Type: AWS::EC2::EIP
+    Condition: PerAzNat
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: PerAzNat
+    Properties:
+      AllocationId: !GetAtt NatEip2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-2'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NatEip3:
+    Type: AWS::EC2::EIP
+    Condition: ThirdNat
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  NatGateway3:
+    Type: AWS::EC2::NatGateway
+    Condition: ThirdNat
+    Properties:
+      AllocationId: !GetAtt NatEip3.AllocationId
+      SubnetId: !Ref PublicSubnet3
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-nat-3'}
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  PrivateDefaultRoute1:
+    Type: AWS::EC2::Route
+    Condition: AnyNat
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateDefaultRoute2:
+    Type: AWS::EC2::Route
+    Condition: AnyNat
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !If [PerAzNat, !Ref NatGateway2, !Ref NatGateway1]
+
+  PrivateDefaultRoute3:
+    Type: AWS::EC2::Route
+    Condition: ThreeAzAnyNat
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !If [PerAzNat, !Ref NatGateway3, !Ref NatGateway1]
+
+  # Gateway endpoints have no hourly or data charge.
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      RouteTableIds:
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
+        - !If [ThreeAz, !Ref PrivateRouteTable3, !Ref AWS::NoValue]
+        - !Ref IsolatedRouteTable
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  DynamoDbGatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.dynamodb'
+      RouteTableIds:
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
+        - !If [ThreeAz, !Ref PrivateRouteTable3, !Ref AWS::NoValue]
+        - !Ref IsolatedRouteTable
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: FlowLogs
+    Properties:
+      RetentionInDays: !Ref FlowLogRetentionDays
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Condition: FlowLogs
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: vpc-flow-logs.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: WriteFlowLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub '${FlowLogGroup.Arn}:*'
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+  FlowLog:
+    Type: AWS::EC2::FlowLog
+    Condition: FlowLogs
+    Properties:
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref FlowLogGroup
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+      Tags:
+        - {Key: Project, Value: !Ref ProjectName}
+        - {Key: Environment, Value: !Ref Environment}
+        - {Key: ManagedBy, Value: CloudFormation}
+
+Outputs:
+  VpcId:
+    Description: VPC ID.
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'
+  VpcCidr:
+    Description: VPC CIDR block.
+    Value: !GetAtt Vpc.CidrBlock
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcCidr'
+  PublicSubnetIds:
+    Description: Comma-separated public subnet IDs.
+    Value: !If
+      - ThreeAz
+      - !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2, !Ref PublicSubnet3]]
+      - !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnetIds'
+  PrivateSubnetIds:
+    Description: Comma-separated private subnet IDs. These have internet egress only when NatMode is not none.
+    Value: !If
+      - ThreeAz
+      - !Join [',', [!Ref PrivateSubnet1, !Ref PrivateSubnet2, !Ref PrivateSubnet3]]
+      - !Join [',', [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetIds'
+  IsolatedSubnetIds:
+    Description: Comma-separated isolated subnet IDs, with no route to the internet.
+    Value: !If
+      - ThreeAz
+      - !Join [',', [!Ref IsolatedSubnet1, !Ref IsolatedSubnet2, !Ref IsolatedSubnet3]]
+      - !Join [',', [!Ref IsolatedSubnet1, !Ref IsolatedSubnet2]]
+    Export:
+      Name: !Sub '${AWS::StackName}-IsolatedSubnetIds'
